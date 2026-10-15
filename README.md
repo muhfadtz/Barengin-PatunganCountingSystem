@@ -28,9 +28,16 @@ Butuh Node.js >= 20.19.
 
 ## API key Gemini
 
-Ambil key gratis di [Google AI Studio](https://aistudio.google.com/apikey) lalu tempel di app saat upload pertama.
-Key **hanya disimpan di memori** (tidak di `localStorage`, `sessionStorage`, atau cookie), jadi hilang saat halaman di-refresh dan perlu dimasukkan lagi.
-Key dikirim langsung dari browser ke Google; gunakan key khusus untuk app ini.
+Ambil key gratis di [Google AI Studio](https://aistudio.google.com/apikey), lalu:
+
+```bash
+cp .env.example .env     # isi VITE_GEMINI_API_KEY=...
+npm run dev              # restart dev server setelah mengubah .env
+```
+
+`.env` sudah di-`.gitignore`, jadi tidak ikut ter-commit. Tanpa `.env`, app meminta key saat upload pertama dan hanya menyimpannya di memori (tidak di `localStorage`; hilang saat refresh).
+
+> **Penting:** semua variabel `VITE_*` ikut tertanam di bundle JavaScript saat build. Ini aman untuk dipakai lokal, tapi **jangan deploy publik dengan key di `.env`**: siapa pun bisa membacanya dari browser. Untuk deploy publik, pasang backend/proxy kecil yang menyimpan key di server.
 
 ## Struktur
 

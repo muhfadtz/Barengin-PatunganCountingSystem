@@ -16,9 +16,11 @@ export interface ParsedReceipt {
 
 export const MODEL = 'gemini-2.5-flash'
 /**
- * API key hanya disimpan di memori (variabel modul), TIDAK di localStorage/sessionStorage/cookie.
- * Key hilang saat halaman di-refresh atau ditutup, dan harus dimasukkan lagi.
+ * Sumber API key, berurutan:
+ * 1. `VITE_GEMINI_API_KEY` dari file `.env` (tidak di-commit, lihat `.env.example`).
+ * 2. Diketik di app: hanya di memori, TIDAK di localStorage/sessionStorage/cookie.
  */
+const envKey = (import.meta.env.VITE_GEMINI_API_KEY ?? '').trim()
 let memoryKey = ''
 
 // Bersihkan key yang pernah tersimpan oleh versi sebelumnya.
@@ -28,8 +30,10 @@ try {
   /* storage diblokir: tidak ada yang perlu dibersihkan */
 }
 
+export const hasEnvKey = envKey !== ''
+
 export function loadApiKey(): string {
-  return memoryKey
+  return envKey || memoryKey
 }
 export function saveApiKey(key: string) {
   memoryKey = key

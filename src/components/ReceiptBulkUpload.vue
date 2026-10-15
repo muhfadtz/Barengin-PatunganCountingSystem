@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { CircleAlert, CircleCheck, ImagePlus, KeyRound, LoaderCircle, ScanLine } from 'lucide-vue-next'
-import { GeminiError, loadApiKey, saveApiKey, scanReceipt } from '../lib/gemini'
+import { GeminiError, hasEnvKey, loadApiKey, saveApiKey, scanReceipt } from '../lib/gemini'
 import { uid } from '../lib/format'
 import type { Expense, Member } from '../lib/split'
 
@@ -129,7 +129,7 @@ function onDrop(e: DragEvent) {
       <div>
         <p class="text-body-md">API key Gemini</p>
         <p class="text-small muted-text" style="margin-top: 2px">
-          Dipakai untuk membaca struk. Dapatkan gratis di
+          Dipakai untuk membaca struk. Tip: simpan di file <code>.env</code> sebagai <code>VITE_GEMINI_API_KEY</code> supaya tidak perlu mengetik lagi. Dapatkan gratis di
           <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="text-decoration: underline">Google AI Studio</a>.
           Key hanya disimpan di memori: tidak ditulis ke browser dan hilang saat halaman di-refresh.
         </p>
@@ -166,7 +166,7 @@ function onDrop(e: DragEvent) {
       <input type="file" accept="image/*" multiple :disabled="busy" class="sr-only" @change="onPick" />
     </label>
 
-    <div v-if="!editingKey && !busy" class="row" style="justify-content: flex-end; gap: 4px">
+    <div v-if="!hasEnvKey && !editingKey && !busy" class="row" style="justify-content: flex-end; gap: 4px">
       <button type="button" class="link-btn row" style="gap: 6px; text-decoration: none" @click="editingKey = true">
         <KeyRound :size="14" aria-hidden="true" /> Ganti API key
       </button>
