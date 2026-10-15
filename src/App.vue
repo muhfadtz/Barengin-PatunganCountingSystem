@@ -17,6 +17,10 @@ const { active, history, startSession, closeSession, deleteSession } = useStore(
 
 /* ── UI state ─────────────────────────────────────────── */
 const view = ref<'session' | 'history'>('session')
+const tabs = [
+  { key: 'session', label: 'Sesi', icon: ReceiptText },
+  { key: 'history', label: 'Riwayat', icon: History },
+] as const
 const showExpenseForm = ref(false) // default tersembunyi supaya fokus ke daftar item
 const showMemberForm = ref(false)
 const openHistoryId = ref('')
@@ -121,15 +125,11 @@ function setAllPayer(ev: Event) {
     <header class="app-header">
       <div class="container-app header-inner">
         <BarenginLogo />
-        <nav class="row" style="gap: 4px; flex-wrap: nowrap" aria-label="Navigasi">
-          <button type="button" class="btn btn-sm" :class="view === 'session' ? 'btn-secondary' : 'btn-ghost'" :aria-current="view === 'session'" @click="view = 'session'">
-            <ReceiptText :size="18" aria-hidden="true" />
-            Sesi
-          </button>
-          <button type="button" class="btn btn-sm" :class="view === 'history' ? 'btn-secondary' : 'btn-ghost'" :aria-current="view === 'history'" @click="view = 'history'">
-            <History :size="18" aria-hidden="true" />
-            Riwayat
-            <span v-if="history.length" class="badge">{{ history.length }}</span>
+        <nav class="top-nav row" style="gap: 4px; flex-wrap: nowrap" aria-label="Navigasi utama">
+          <button v-for="t in tabs" :key="t.key" type="button" class="btn btn-sm" :class="view === t.key ? 'btn-secondary' : 'btn-ghost'" :aria-current="view === t.key ? 'page' : undefined" @click="view = t.key">
+            <component :is="t.icon" :size="18" aria-hidden="true" />
+            {{ t.label }}
+            <span v-if="t.key === 'history' && history.length" class="badge">{{ history.length }}</span>
           </button>
         </nav>
       </div>
@@ -282,6 +282,17 @@ function setAllPayer(ev: Event) {
         </section>
       </template>
     </main>
+
+    <!-- Mobile & tablet: bottom navbar -->
+    <nav class="bottom-nav" aria-label="Navigasi utama">
+      <button v-for="t in tabs" :key="t.key" type="button" class="bottom-nav-item" :class="{ 'bottom-nav-active': view === t.key }" :aria-current="view === t.key ? 'page' : undefined" @click="view = t.key">
+        <span class="bottom-nav-icon">
+          <component :is="t.icon" :size="22" aria-hidden="true" />
+          <span v-if="t.key === 'history' && history.length" class="bottom-nav-badge">{{ history.length }}</span>
+        </span>
+        {{ t.label }}
+      </button>
+    </nav>
 
     <div v-if="toast" class="toast" role="status">{{ toast }}</div>
   </div>
