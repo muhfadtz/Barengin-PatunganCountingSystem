@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { FlaskConical, Play, Plus, X } from 'lucide-vue-next'
+import MemberAvatar from './MemberAvatar.vue'
 import type { Member } from '../lib/split'
 import { uid } from '../lib/format'
 import { DEFAULT_CUSTOM_MEMBERS, DUO_MEMBERS } from '../lib/sample'
@@ -59,7 +60,7 @@ function remove(id: string) {
       </div>
       <div class="chip-row">
         <span v-for="m in members" :key="m.id" class="chip chip-static" style="padding-right: 4px">
-          <span class="avatar" aria-hidden="true">{{ m.name.charAt(0).toUpperCase() }}</span>
+          <MemberAvatar :name="m.name" :size="24" />
           {{ m.name }}
           <button type="button" class="icon-btn" style="width: 28px; height: 28px" :aria-label="`Hapus ${m.name}`" @click="remove(m.id)">
             <X :size="14" stroke-width="2.5" aria-hidden="true" />

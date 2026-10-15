@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import BaseSelect from './BaseSelect.vue'
 import { Trash2 } from 'lucide-vue-next'
 import { computeShares, expenseTotal } from '../lib/split'
 import type { Expense, Member } from '../lib/split'
@@ -9,6 +10,8 @@ const props = defineProps<{ members: Member[]; expenses: Expense[]; readonly?: b
 const emit = defineEmits<{ (e: 'remove', id: string): void }>()
 
 const name = (id: string) => props.members.find((m) => m.id === id)?.name ?? '?'
+
+const memberOptions = computed(() => props.members.map((m) => ({ value: m.id, label: m.name })))
 
 const rows = computed(() =>
   props.expenses.map((e) => {
@@ -93,9 +96,7 @@ function splitLabel(e: Expense) {
                 :disabled="!isEqual(r.e) && r.e.split.type !== 'exclusive'"
                 @change="setAmount(r.e, $event)"
               />
-              <select v-model="r.e.paidBy" class="input" aria-label="Dibayar oleh" style="min-width: 0">
-                <option v-for="m in members" :key="m.id" :value="m.id">Bayar: {{ m.name }}</option>
-              </select>
+              <BaseSelect v-model="r.e.paidBy" :options="memberOptions" prefix="Bayar:" aria-label="Dibayar oleh" style="min-width: 0" />
             </div>
           </div>
           <button type="button" class="icon-btn" :aria-label="`Hapus ${r.e.title}`" title="Hapus item" @click="emit('remove', r.e.id)">

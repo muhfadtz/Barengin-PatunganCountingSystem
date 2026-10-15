@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { allocate, balances, computeShares, settle } from './split'
 import type { Expense, Member } from './split'
-import { parseReceipt, receiptTotal } from './ocr'
+import { normalizeReceipt } from './gemini'
 import { buildWhatsAppMessage } from './whatsapp'
 import { rupiah, toInt } from './format'
 
@@ -75,17 +75,18 @@ describe('balances & settle', () => {
   })
 })
 
-describe('OCR parser', () => {
-  const text = `KEDAI MAKAN
-Kasir: Budi
-2 x Nasi Goreng 50.000
-Es Teh  10.000
-Service 5.000
-Diskon 3.000
-PPN 11% 6.600
-Total 68.600`
-  it('mengenali item, extra, dan total', () => {
-    const p = parseReceipt(text)
+describe('normalizeReceipt (hasil Gemini)', () => {
+  it('memaksa integer dan membuang item tidak valid', () => {
+    const p = normalizeReceipt({
+      items: [
+        { name: '  Nasi   Goreng ', qty: 2, subtotal: '50.000' },
+        { name: 'Es Teh', qty: 0, subtotal: 10000 },
+        { name: '', qty: 1, subtotal: 5000 },
+        { name: 'Gratis', qty: 1, subtotal: 0 },
+      ],
+      adjustment: 8600,
+      total: 68600,
+    })
     expect(p.items).toEqual([
       { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
       { name: 'Es Teh', qty: 1, subtotal: 10000 },
@@ -93,10 +94,9 @@ Total 68.600`
     expect(p.adjustment).toBe(8600)
     expect(p.total).toBe(68600)
   })
-  it('fallback total dari item + penyesuaian', () => {
-    const p = parseReceipt('Nasi Goreng @25.000 x2 50.000\nPajak 5.000')
-    expect(p.total).toBeNull()
-    expect(receiptTotal(p)).toBe(55000)
+  it('toleran terhadap data kosong / total null', () => {
+    expect(normalizeReceipt(null)).toEqual({ items: [], adjustment: 0, total: null })
+    expect(normalizeReceipt({ items: [], adjustment: -3000, total: null }).adjustment).toBe(-3000)
   })
 })
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { X } from 'lucide-vue-next'
+import BaseSelect from './BaseSelect.vue'
 import SplitSelector from './SplitSelector.vue'
 import { computeShares } from '../lib/split'
 import type { Expense, Member, Split } from '../lib/split'
@@ -20,6 +21,7 @@ watch(
   { immediate: true, deep: true },
 )
 
+const memberOptions = computed(() => props.members.map((m) => ({ value: m.id, label: m.name })))
 const amountInt = computed(() => toInt(form.amount))
 const taxInt = computed(() => toInt(form.tax) * (form.taxKind === 'minus' ? -1 : 1))
 const draftTotal = computed(() => amountInt.value + taxInt.value)
@@ -76,10 +78,8 @@ function submit() {
         <input id="f-amount" v-model="form.amount" class="input" inputmode="numeric" placeholder="Rp 35.000" autocomplete="off" />
       </div>
       <div>
-        <label class="label" for="f-paid">Dibayar oleh</label>
-        <select id="f-paid" v-model="form.paidBy" class="input">
-          <option v-for="m in members" :key="m.id" :value="m.id">{{ m.name }}</option>
-        </select>
+        <span class="label">Dibayar oleh</span>
+        <BaseSelect v-model="form.paidBy" :options="memberOptions" aria-label="Dibayar oleh" />
       </div>
     </div>
 

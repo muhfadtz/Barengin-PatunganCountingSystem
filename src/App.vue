@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Archive, ChevronRight, History, Plus, ReceiptText, Trash2, UserPlus, X } from 'lucide-vue-next'
+import { computed, nextTick, ref } from 'vue'
+import { Archive, ChevronDown, ChevronRight, History, Plus, ReceiptText, Trash2, UserPlus, X } from 'lucide-vue-next'
+import BaseSelect from './components/BaseSelect.vue'
+import MemberAvatar from './components/MemberAvatar.vue'
 import BarenginLogo from './components/BarenginLogo.vue'
 import ExpenseForm from './components/ExpenseForm.vue'
 import ExpenseList from './components/ExpenseList.vue'
@@ -22,7 +24,8 @@ const tabs = [
   { key: 'history', label: 'Riwayat', icon: History },
 ] as const
 const showExpenseForm = ref(false) // default tersembunyi supaya fokus ke daftar item
-const showMemberForm = ref(false)
+const showMembers = ref(false) // panel anggota: ringkas (stack avatar) sampai dibuka
+const memberInput = ref<HTMLInputElement>()
 const openHistoryId = ref('')
 const newName = ref('')
 const toast = ref('')
@@ -63,7 +66,7 @@ function onClose() {
   if (!confirm(`Tutup sesi "${s.name}"? Sesi akan dipindah ke riwayat dan tidak bisa diubah lagi.`)) return
   closeSession()
   showExpenseForm.value = false
-  showMemberForm.value = false
+  showMembers.value = false
   view.value = 'history'
   openHistoryId.value = s.id
   notify('Sesi ditutup dan disimpan ke riwayat')
@@ -111,11 +114,14 @@ function addExpense(e: Expense) {
 function removeExpense(id: string) {
   if (active.value) active.value.expenses = active.value.expenses.filter((e) => e.id !== id)
 }
-function setAllPayer(ev: Event) {
-  const id = (ev.target as HTMLSelectElement).value
+const memberOptions = computed(() => members.value.map((m) => ({ value: m.id, label: m.name })))
+function openAddMember() {
+  showMembers.value = true
+  nextTick(() => memberInput.value?.focus())
+}
+function setAllPayer(id: string) {
   if (!id) return
   expenses.value.forEach((e) => (e.paidBy = id))
-  ;(ev.target as HTMLSelectElement).value = ''
   notify('Semua item diatur dibayar oleh satu orang')
 }
 </script>
@@ -166,60 +172,64 @@ function setAllPayer(ev: Event) {
               <ReceiptBulkUpload :members="members" :compact="expenses.length > 0" :source-offset="receiptCount" @import="onImport" />
             </section>
 
-            <!-- 2. Anggota -->
-            <section class="section" aria-labelledby="members-title">
-              <div class="section-head" style="align-items: center">
-                <h2 id="members-title" class="h3">Anggota</h2>
+            <!-- 2 + 3. Anggota (ringkas) & daftar item -->
+            <section class="section" style="gap: 12px" aria-labelledby="list-title">
+              <div class="member-bar">
                 <button
                   type="button"
-                  class="btn btn-ghost btn-sm"
-                  :aria-expanded="showMemberForm"
-                  @click="showMemberForm = !showMemberForm"
+                  class="member-toggle"
+                  :aria-expanded="showMembers"
+                  aria-controls="member-panel"
+                  @click="showMembers = !showMembers"
                 >
-                  <component :is="showMemberForm ? X : UserPlus" :size="18" aria-hidden="true" />
-                  {{ showMemberForm ? 'Tutup' : 'Tambah anggota' }}
+                  <span class="avatar-stack">
+                    <MemberAvatar v-for="m in members.slice(0, 5)" :key="m.id" :name="m.name" :size="30" />
+                    <span v-if="members.length > 5" class="m-avatar m-avatar-more" style="width: 30px; height: 30px">+{{ members.length - 5 }}</span>
+                  </span>
+                  <span class="text-small" style="font-weight: 600">{{ members.length }} anggota</span>
+                  <ChevronDown :size="16" class="select-chev" :class="{ 'select-chev-open': showMembers }" aria-hidden="true" />
+                </button>
+                <button type="button" class="pill-btn" @click="openAddMember">
+                  <UserPlus :size="16" aria-hidden="true" />
+                  Anggota
                 </button>
               </div>
-              <div class="chip-row">
-                <span v-for="m in members" :key="m.id" class="chip chip-static" style="padding-right: 4px">
-                  <span class="avatar" aria-hidden="true">{{ m.name.charAt(0).toUpperCase() }}</span>
-                  {{ m.name }}
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    style="width: 28px; height: 28px"
-                    :disabled="!canRemove(m.id)"
-                    :aria-label="`Hapus ${m.name}`"
-                    :title="isUsed(m.id) ? 'Sudah dipakai di pengeluaran' : members.length <= 2 ? 'Minimal 2 anggota' : `Hapus ${m.name}`"
-                    @click="removeMember(m.id)"
-                  >
-                    <X :size="14" stroke-width="2.5" aria-hidden="true" />
-                  </button>
-                </span>
-              </div>
-              <form v-if="showMemberForm" class="row" style="flex-wrap: nowrap" @submit.prevent="addMember">
-                <input v-model="newName" class="input" placeholder="Nama anggota baru" aria-label="Nama anggota baru" maxlength="24" autofocus />
-                <button type="submit" class="btn btn-primary" :disabled="!newName.trim()" aria-label="Tambah anggota" title="Tambah">
-                  <Plus :size="20" aria-hidden="true" />
-                </button>
-              </form>
-            </section>
 
-            <!-- 3. Daftar item -->
-            <section class="section" aria-labelledby="list-title">
-              <div class="section-head" style="align-items: center">
-                <div class="row">
-                  <h2 id="list-title" class="h3">Daftar item</h2>
-                  <span v-if="expenses.length" class="badge">{{ expenses.length }} item</span>
+              <div v-if="showMembers" id="member-panel" class="member-panel">
+                <div class="chip-row" style="gap: 6px">
+                  <span v-for="m in members" :key="m.id" class="chip chip-static" style="min-height: 34px; padding: 3px 4px 3px 4px; gap: 6px">
+                    <MemberAvatar :name="m.name" :size="26" />
+                    <span class="text-small" style="font-weight: 500">{{ m.name }}</span>
+                    <button
+                      type="button"
+                      class="icon-btn"
+                      style="width: 26px; height: 26px"
+                      :disabled="!canRemove(m.id)"
+                      :aria-label="`Hapus ${m.name}`"
+                      :title="isUsed(m.id) ? 'Sudah dipakai di pengeluaran' : members.length <= 2 ? 'Minimal 2 anggota' : `Hapus ${m.name}`"
+                      @click="removeMember(m.id)"
+                    >
+                      <X :size="14" stroke-width="2.5" aria-hidden="true" />
+                    </button>
+                  </span>
                 </div>
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-sm"
-                  :aria-expanded="showExpenseForm"
-                  @click="showExpenseForm = !showExpenseForm"
-                >
-                  <component :is="showExpenseForm ? X : Plus" :size="18" aria-hidden="true" />
-                  {{ showExpenseForm ? 'Tutup' : 'Tambah manual' }}
+                <form class="row" style="flex-wrap: nowrap; gap: 6px" @submit.prevent="addMember">
+                  <input ref="memberInput" v-model="newName" class="input input-sm" placeholder="Nama anggota baru" aria-label="Nama anggota baru" maxlength="24" />
+                  <button type="submit" class="pill-btn pill-btn-primary" :disabled="!newName.trim()" aria-label="Tambah anggota">
+                    <Plus :size="16" aria-hidden="true" />
+                    Tambah
+                  </button>
+                </form>
+              </div>
+
+              <div class="section-head" style="align-items: center; margin-top: 8px">
+                <div class="row" style="gap: 8px">
+                  <h2 id="list-title" class="h3">Daftar item</h2>
+                  <span v-if="expenses.length" class="badge">{{ expenses.length }}</span>
+                </div>
+                <button type="button" class="pill-btn" :aria-expanded="showExpenseForm" @click="showExpenseForm = !showExpenseForm">
+                  <component :is="showExpenseForm ? X : Plus" :size="16" aria-hidden="true" />
+                  {{ showExpenseForm ? 'Tutup' : 'Tambah item' }}
                 </button>
               </div>
 
@@ -228,11 +238,8 @@ function setAllPayer(ev: Event) {
               <div v-if="!expenses.length" class="empty">Belum ada item. Upload struk di atas, atau tambah manual.</div>
               <template v-else>
                 <div class="row text-small">
-                  <label for="all-payer" class="muted-text">Semua dibayar oleh</label>
-                  <select id="all-payer" class="input" style="width: auto; min-height: 40px" @change="setAllPayer">
-                    <option value="">Pilih…</option>
-                    <option v-for="m in members" :key="m.id" :value="m.id">{{ m.name }}</option>
-                  </select>
+                  <span class="muted-text">Semua dibayar oleh</span>
+                  <BaseSelect small model-value="" :options="memberOptions" placeholder="Pilih…" aria-label="Atur pembayar semua item" @update:model-value="setAllPayer" />
                 </div>
                 <ExpenseList :members="members" :expenses="expenses" @remove="removeExpense" />
               </template>
