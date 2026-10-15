@@ -1,5 +1,5 @@
 {
-  "name": "bagiin",
+  "name": "barengin",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "lucide-vue-next": "^1.0.0",
     "tesseract.js": "^6.0.0",
     "vue": "^3.5.0"
   },

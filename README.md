@@ -1,4 +1,4 @@
-# Bagiin — Patungan tanpa ribut
+# Barengin — Patungan tanpa ribut
 
 Aplikasi split bill client-side: Vue 3 + TypeScript + Vite + Tailwind CSS v4, OCR struk dengan Tesseract.js.
 Tampilan mengikuti design system **Pinterest Light** (`Design_2.md`), mobile-first lalu tablet dan desktop.
@@ -32,7 +32,7 @@ src/
 ├── App.vue                      orkestrator utama
 ├── style.css                    token Pinterest Light + komponen (btn, chip, card, sheet, …)
 ├── components/
-│   ├── BagiinLogo.vue
+│   ├── BarenginLogo.vue
 │   ├── SplitSelector.vue        equal / exclusive / custom
 │   └── ReceiptUploadModal.vue   upload → OCR → review → impor (bottom sheet di mobile)
 └── lib/

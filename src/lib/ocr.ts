@@ -109,3 +109,37 @@ export async function recognizeReceipt(
     await worker.terminate()
   }
 }
+
+/**
+ * OCR banyak struk sekaligus memakai satu worker (bahasa hanya diunduh sekali).
+ * `onUpdate` dipanggil per file: status "reading" dengan progres, lalu "done" / "error".
+ */
+export async function recognizeReceipts(
+  files: File[],
+  onUpdate: (
+    index: number,
+    state: { status: 'reading' | 'done' | 'error'; progress: number; text?: string },
+  ) => void,
+): Promise<void> {
+  const { createWorker } = await import('tesseract.js')
+  let current = 0
+  const worker = await createWorker('eng', 1, {
+    logger: (m: { status: string; progress: number }) => {
+      if (m.status === 'recognizing text') onUpdate(current, { status: 'reading', progress: m.progress })
+    },
+  })
+  try {
+    for (let i = 0; i < files.length; i++) {
+      current = i
+      onUpdate(i, { status: 'reading', progress: 0 })
+      try {
+        const { data } = await worker.recognize(files[i])
+        onUpdate(i, { status: 'done', progress: 1, text: data.text })
+      } catch {
+        onUpdate(i, { status: 'error', progress: 0 })
+      }
+    }
+  } finally {
+    await worker.terminate()
+  }
+}

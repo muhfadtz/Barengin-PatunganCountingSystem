@@ -2,13 +2,13 @@ import { rupiah } from './format'
 import { balances, expenseTotal, settle, totalSpent } from './split'
 import type { Expense, Member } from './split'
 
-export function buildWhatsAppMessage(members: Member[], expenses: Expense[]): string {
+export function buildWhatsAppMessage(members: Member[], expenses: Expense[], title?: string): string {
   const name = (id: string) => members.find((m) => m.id === id)?.name ?? id
   const bal = balances(members, expenses)
   const transfers = settle(bal)
 
   const lines: string[] = []
-  lines.push('📋 Bagiin — Ringkasan Patungan', '')
+  lines.push(`📋 Barengin — ${title ? title : 'Ringkasan Patungan'}`, '')
   lines.push(`💰 Total Pengeluaran: ${rupiah(totalSpent(expenses))}`, '')
 
   lines.push('💸 HASIL TRANSFER')

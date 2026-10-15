@@ -610,6 +610,28 @@
   }
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+.dropzone-compact {
+  flex-direction: row;
+  padding: 14px 20px;
+  gap: 10px;
+  min-height: 0;
+}
+.chev {
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.chev-open {
+  transform: rotate(90deg);
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;

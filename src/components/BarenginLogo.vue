@@ -1,5 +1,5 @@
 <template>
-  <span class="inline-flex items-center gap-2.5" aria-label="Bagiin">
+  <span class="inline-flex items-center gap-2.5" aria-label="Barengin">
     <svg width="36" height="36" viewBox="0 0 64 64" aria-hidden="true">
       <rect width="64" height="64" rx="16" fill="var(--color-primary)" />
       <path
@@ -10,6 +10,6 @@
         stroke-linejoin="round"
       />
     </svg>
-    <span class="text-[22px] leading-none font-bold tracking-tight">Bagiin</span>
+    <span class="text-[22px] leading-none font-bold tracking-tight">Barengin</span>
   </span>
 </template>
