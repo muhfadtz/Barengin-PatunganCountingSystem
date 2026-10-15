@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { allocate, balances, computeShares, settle } from './split'
 import type { Expense, Member } from './split'
-import { normalizeReceipt } from './gemini'
-import { mergeReceipts } from './merge'
-import { parseReceipt, receiptTotal } from './ocr'
+import { cleanOcrText, parseReceipt, receiptTotal } from './receiptParser'
 import { buildWhatsAppMessage } from './whatsapp'
 import { rupiah, toInt } from './format'
 
@@ -77,31 +75,6 @@ describe('balances & settle', () => {
   })
 })
 
-describe('normalizeReceipt (hasil Gemini)', () => {
-  it('memaksa integer dan membuang item tidak valid', () => {
-    const p = normalizeReceipt({
-      items: [
-        { name: '  Nasi   Goreng ', qty: 2, subtotal: '50.000' },
-        { name: 'Es Teh', qty: 0, subtotal: 10000 },
-        { name: '', qty: 1, subtotal: 5000 },
-        { name: 'Gratis', qty: 1, subtotal: 0 },
-      ],
-      adjustment: 8600,
-      total: 68600,
-    })
-    expect(p.items).toEqual([
-      { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
-      { name: 'Es Teh', qty: 1, subtotal: 10000 },
-    ])
-    expect(p.adjustment).toBe(8600)
-    expect(p.total).toBe(68600)
-  })
-  it('toleran terhadap data kosong / total null', () => {
-    expect(normalizeReceipt(null)).toEqual({ items: [], adjustment: 0, total: null })
-    expect(normalizeReceipt({ items: [], adjustment: -3000, total: null }).adjustment).toBe(-3000)
-  })
-})
-
 describe('OCR parser', () => {
   const text = `KEDAI MAKAN
 Kasir: Budi
@@ -128,28 +101,22 @@ Total 68.600`
 })
 
 
-describe('mergeReceipts', () => {
-  const r = (items: number[], adjustment = 0, total: number | null = null) => ({
-    items: items.map((n, i) => ({ name: `I${i}`, qty: 1, subtotal: n })),
-    adjustment,
-    total,
+describe('cleanOcrText (keluaran PaddleOCR-VL)', () => {
+  it('meratakan tabel markdown dan HTML jadi baris biasa', () => {
+    const md = '| Item | Qty | Harga |\n|---|---|---|\n| Nasi Goreng | 2 | 50.000 |\n| Es Teh | 1 | 10.000 |'
+    const p = parseReceipt(md)
+    expect(p.items).toEqual([
+      { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
+      { name: 'Es Teh', qty: 1, subtotal: 10000 },
+    ])
+    const html = '<table><tr><td>Es Teh</td><td>10.000</td></tr><tr><td>PPN</td><td>1.100</td></tr></table>'
+    const q = parseReceipt(html)
+    expect(q.items).toEqual([{ name: 'Es Teh', qty: 1, subtotal: 10000 }])
+    expect(q.adjustment).toBe(1100)
   })
-  it('hanya salah satu punya item', () => {
-    expect(mergeReceipts(r([]), r([1000])).source).toBe('ocr')
-    expect(mergeReceipts(r([1000]), null).source).toBe('gemini')
-    expect(mergeReceipts(null, null).source).toBe('none')
-  })
-  it('memilih yang totalnya cocok', () => {
-    const ai = r([10000, 20000], 0, 33000)
-    const local = r([10000, 20000], 3000, 33000)
-    const out = mergeReceipts(ai, local)
-    expect(out.source).toBe('gemini')
-    expect(out.receipt.adjustment).toBe(3000) // pajak dari OCR melengkapi Gemini
-    const bad = mergeReceipts(r([10000, 25000], 0, 30000), r([10000, 20000], 0, 30000))
-    expect(bad.source).toBe('ocr')
-  })
-  it('seri → utamakan Gemini', () => {
-    expect(mergeReceipts(r([1000]), r([2000])).source).toBe('gemini')
+  it('membuang penanda markdown', () => {
+    expect(cleanOcrText('## **Total** 66.600')).toContain('Total')
+    expect(parseReceipt('## **Total** 66.600').total).toBe(66600)
   })
 })
 

@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CircleAlert, CircleCheck, ImagePlus, KeyRound, LoaderCircle, ScanLine } from 'lucide-vue-next'
-import { GeminiError, hasEnvKey, loadApiKey, saveApiKey, scanReceipt } from '../lib/gemini'
-import type { ParsedReceipt } from '../lib/gemini'
-import { createLocalOcr, parseReceipt } from '../lib/ocr'
-import { mergeReceipts } from '../lib/merge'
+import { CircleAlert, CircleCheck, ImagePlus, LoaderCircle, ScanLine } from 'lucide-vue-next'
+import { OcrError, recognizeReceipt } from '../lib/paddleocr'
+import { parseReceipt } from '../lib/receiptParser'
+import type { ParsedReceipt } from '../lib/receiptParser'
 import { uid } from '../lib/format'
 import type { Expense, Member } from '../lib/split'
 
@@ -16,31 +15,12 @@ interface Job {
   status: 'waiting' | 'reading' | 'done' | 'error'
   progress: number
   count: number
-  via?: 'gemini' | 'ocr' | 'none'
 }
 
 const jobs = ref<Job[]>([])
 const busy = ref(false)
 const dragging = ref(false)
 const error = ref('')
-const apiKey = ref(loadApiKey())
-const keyDraft = ref('')
-const editingKey = ref(!apiKey.value)
-
-function submitKey() {
-  const k = keyDraft.value.trim()
-  if (!k) return
-  apiKey.value = k
-  saveApiKey(k)
-  keyDraft.value = ''
-  editingKey.value = false
-  error.value = ''
-}
-function removeKey() {
-  apiKey.value = ''
-  saveApiKey('')
-  editingKey.value = true
-}
 
 const finished = computed(() => jobs.value.filter((j) => j.status === 'done' || j.status === 'error').length)
 const overall = computed(() => {
@@ -50,7 +30,7 @@ const overall = computed(() => {
 })
 
 async function processFiles(list: FileList | File[] | null | undefined) {
-  if (!list || busy.value || !apiKey.value) return
+  if (!list || busy.value) return
   const files = Array.from(list).filter((f) => f.type.startsWith('image/'))
   if (!files.length) {
     error.value = 'File harus berupa gambar (JPG, PNG, atau WebP).'
@@ -83,56 +63,33 @@ async function processFiles(list: FileList | File[] | null | undefined) {
     })
   }
 
-  // Dua struk sekaligus; tiap struk: OCR lokal → Gemini (dibantu teks OCR) → gabung. Urutan hasil mengikuti urutan file.
+  // Dua struk sekaligus; tiap struk: PaddleOCR-VL → teks → parser. Urutan hasil mengikuti urutan file.
   const results: (ParsedReceipt | null)[] = files.map(() => null)
   let next = 0
-  let useAi = true
-  const lastErrors = new Set<string>()
+  let stop = false
+  const errors = new Set<string>()
   async function worker() {
-    const ocr = createLocalOcr()
-    try {
-      while (next < files.length) {
-        const i = next++
-        const job = jobs.value[i]
-        job.status = 'reading'
-        job.progress = 0.1
-
-        let text = ''
-        let local: ParsedReceipt | null = null
-        try {
-          text = await ocr.recognize(files[i])
-          local = parseReceipt(text)
-        } catch {
-          /* OCR lokal gagal (mis. offline saat unduh data bahasa): lanjut hanya dengan Gemini */
-        }
-        job.progress = 0.4
-
-        let ai: ParsedReceipt | null = null
-        if (useAi) {
-          try {
-            ai = await scanReceipt(files[i], apiKey.value, text)
-          } catch (e) {
-            lastErrors.add(e instanceof GeminiError ? e.message : 'Gagal memproses struk')
-            if (e instanceof GeminiError && e.fatal) {
-              useAi = false
-              editingKey.value = true
-            }
-          }
-        }
-
-        const merged = mergeReceipts(ai, local)
-        results[i] = merged.receipt.items.length ? merged.receipt : null
-        job.via = merged.source
-        job.status = merged.source === 'none' && !ai && !local ? 'error' : 'done'
-        job.progress = 1
+    while (!stop && next < files.length) {
+      const i = next++
+      const job = jobs.value[i]
+      job.status = 'reading'
+      job.progress = 0.3
+      try {
+        const parsed = parseReceipt(await recognizeReceipt(files[i]))
+        results[i] = parsed.items.length ? parsed : null
+        job.status = 'done'
+      } catch (e) {
+        job.status = 'error'
+        errors.add(e instanceof OcrError ? e.message : 'Gagal memproses struk')
+        // Salah konfigurasi / token: tidak ada gunanya melanjutkan file lain.
+        if (e instanceof OcrError && e.fatal) stop = true
       }
-    } finally {
-      await ocr.close()
+      job.progress = 1
     }
   }
   await Promise.all([worker(), worker()])
   results.forEach((r, i) => r && handle(jobs.value[i], r))
-  if (lastErrors.size) error.value = [...lastErrors].join(' ')
+  if (errors.size) error.value = [...errors].join(' ')
 
   busy.value = false
   if (imported.length) emit('import', imported, receipts)
@@ -152,23 +109,7 @@ function onDrop(e: DragEvent) {
 
 <template>
   <div class="stack" style="gap: 12px">
-    <form v-if="editingKey" class="panel stack" style="gap: 12px" @submit.prevent="submitKey">
-      <div>
-        <p class="text-body-md">API key Gemini</p>
-        <p class="text-small muted-text" style="margin-top: 2px">
-          Dipakai untuk membaca struk. Tip: simpan di file <code>.env</code> sebagai <code>VITE_GEMINI_API_KEY</code> supaya tidak perlu mengetik lagi. Dapatkan gratis di
-          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="text-decoration: underline">Google AI Studio</a>.
-          Key hanya disimpan di memori: tidak ditulis ke browser dan hilang saat halaman di-refresh.
-        </p>
-      </div>
-      <div class="row" style="flex-wrap: nowrap">
-        <input v-model="keyDraft" class="input" type="password" placeholder="AIza…" aria-label="API key Gemini" autocomplete="off" />
-        <button type="submit" class="btn btn-primary" :disabled="!keyDraft.trim()">Simpan</button>
-      </div>
-      <button v-if="apiKey" type="button" class="link-btn" style="align-self: flex-start" @click="editingKey = false">Batal</button>
-    </form>
-
-    <label v-else
+    <label
       class="dropzone"
       :class="{ 'dropzone-active': dragging, 'dropzone-compact': compact }"
       @dragover.prevent="dragging = true"
@@ -187,19 +128,11 @@ function onDrop(e: DragEvent) {
         <ScanLine :size="36" stroke-width="1.8" aria-hidden="true" />
         <span class="text-body-md">Upload atau scan struk — bisa banyak sekaligus</span>
         <span class="text-small muted-text">
-          Pilih beberapa foto, atau tarik &amp; lepas. Dibaca OCR lokal + Gemini lalu digabung jadi daftar item.
+          Pilih beberapa foto, atau tarik &amp; lepas. Dibaca PaddleOCR lalu langsung jadi daftar item.
         </span>
       </template>
       <input type="file" accept="image/*" multiple :disabled="busy" class="sr-only" @change="onPick" />
     </label>
-
-    <div v-if="!hasEnvKey && !editingKey && !busy" class="row" style="justify-content: flex-end; gap: 4px">
-      <button type="button" class="link-btn row" style="gap: 6px; text-decoration: none" @click="editingKey = true">
-        <KeyRound :size="14" aria-hidden="true" /> Ganti API key
-      </button>
-      <span class="muted-text">·</span>
-      <button type="button" class="link-btn" style="text-decoration: none" @click="removeKey">Hapus key</button>
-    </div>
 
     <div v-if="busy" class="progress" role="progressbar" :aria-valuenow="Math.round(overall * 100)" aria-valuemin="0" aria-valuemax="100">
       <span :style="{ width: `${Math.max(4, Math.round(overall * 100))}%` }" />
@@ -215,7 +148,7 @@ function onDrop(e: DragEvent) {
           <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ j.name }}</span>
         </span>
         <span class="muted-text money">
-          <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item · ${j.via === 'ocr' ? 'OCR lokal' : 'Gemini'}` : 'Tidak terbaca' }}</template>
+          <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item` : 'Tidak terbaca' }}</template>
           <template v-else-if="j.status === 'error'">Gagal</template>
           <template v-else-if="j.status === 'reading'">{{ Math.round(j.progress * 100) }}%</template>
           <template v-else>Menunggu</template>

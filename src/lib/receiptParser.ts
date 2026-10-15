@@ -1,4 +1,33 @@
-import type { ParsedItem, ParsedReceipt } from './gemini'
+export interface ParsedItem {
+  name: string
+  qty: number
+  subtotal: number
+}
+
+export interface ParsedReceipt {
+  items: ParsedItem[]
+  /** Pajak + service (positif) dan diskon (negatif), digabung. */
+  adjustment: number
+  /** Total yang tertulis di struk, jika terbaca. */
+  total: number | null
+}
+
+/**
+ * PaddleOCR-VL mengembalikan teks/markdown, bukan baris polos. Ratakan tag HTML (<br>, <td>, <tr>),
+ * pipa tabel markdown, dan penanda heading jadi baris teks biasa sebelum diparsing.
+ */
+export function cleanOcrText(raw: string): string {
+  return raw
+    .replace(/<\/?(tr|p|div|table|thead|tbody)[^>]*>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?t[dh][^>]*>/gi, '  ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\s*\|?[\s:-]+(\|[\s:-]+)+\|?\s*$/gm, '') // baris pemisah tabel markdown |---|---|
+    .replace(/\|/g, '  ')
+    .replace(/^#+\s*/gm, '')
+    .replace(/[*_`]{1,3}/g, '')
+    .replace(/[ \t]+$/gm, '')
+}
 
 /** "50.000" -> 50000, "25.000,00" -> 25000. */
 export function parseMoney(s: string): number {
@@ -18,6 +47,8 @@ const HAS_LETTER = /[a-zA-Z]/
 const P_QTY_X = /^(\d+)\s*[xX]\s+(.+?)\s+(\d[\d.,]*)$/
 const P_UNIT = /^(.+?)\s*@\s*(\d[\d.,]*)\s*[xX]\s*(\d+)\s+(\d[\d.,]*)$/
 const P_QTY_SPACE = /^(\d+)\s{2,}(.+?)\s+(\d[\d.,]*)$/
+// Kolom tabel: "Nasi Goreng   2   50.000" (qty di tengah, dipisah >= 2 spasi)
+const P_NAME_QTY_PRICE = /^(.+?)\s{2,}(\d{1,3})\s{2,}(\d[\d.,]*)$/
 const P_PLAIN = /^(.+?)\s+(\d[\d.,]*)$/
 
 function parseItem(line: string): ParsedItem | null {
@@ -27,6 +58,8 @@ function parseItem(line: string): ParsedItem | null {
   if (m) return build(m[1], parseInt(m[3], 10), parseMoney(m[4]))
   m = line.match(P_QTY_SPACE)
   if (m) return build(m[2], parseInt(m[1], 10), parseMoney(m[3]))
+  m = line.match(P_NAME_QTY_PRICE)
+  if (m) return build(m[1], parseInt(m[2], 10), parseMoney(m[3]))
   m = line.match(P_PLAIN)
   if (m) return build(m[1], 1, parseMoney(m[2]))
   return null
@@ -38,7 +71,8 @@ function build(name: string, qty: number, subtotal: number): ParsedItem | null {
   return { name: clean, qty: qty > 0 ? qty : 1, subtotal }
 }
 
-export function parseReceipt(text: string): ParsedReceipt {
+export function parseReceipt(rawText: string): ParsedReceipt {
+  const text = cleanOcrText(rawText)
   const items: ParsedItem[] = []
   let adjustment = 0
   let total: number | null = null
@@ -77,24 +111,4 @@ export function parseReceipt(text: string): ParsedReceipt {
 export function receiptTotal(parsed: ParsedReceipt): number {
   if (parsed.total !== null) return parsed.total
   return parsed.items.reduce((s, i) => s + i.subtotal, 0) + parsed.adjustment
-}
-
-/** OCR lokal (Tesseract.js, dimuat lazy). Satu worker dipakai ulang untuk beberapa foto. */
-export function createLocalOcr() {
-  type W = { recognize(f: File | Blob): Promise<{ data: { text: string } }>; terminate(): Promise<unknown> }
-  let worker: Promise<W> | null = null
-  return {
-    async recognize(file: File | Blob): Promise<string> {
-      worker ??= import('tesseract.js').then((t) => t.createWorker('eng') as unknown as Promise<W>)
-      const w = await worker
-      const { data } = await w.recognize(file)
-      return data.text
-    },
-    async close() {
-      if (!worker) return
-      const w = await worker.catch(() => null)
-      await w?.terminate()
-      worker = null
-    },
-  }
 }

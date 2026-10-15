@@ -7,7 +7,7 @@ declare module '*.vue' {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_GEMINI_API_KEY?: string
+  readonly VITE_PADDLEOCR_MODEL?: string
 }
 interface ImportMeta {
   readonly env: ImportMetaEnv
