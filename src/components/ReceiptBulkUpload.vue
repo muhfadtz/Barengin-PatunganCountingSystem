@@ -131,7 +131,7 @@ function onDrop(e: DragEvent) {
         <p class="text-small muted-text" style="margin-top: 2px">
           Dipakai untuk membaca struk. Dapatkan gratis di
           <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="text-decoration: underline">Google AI Studio</a>.
-          Key hanya disimpan di browser ini.
+          Key hanya disimpan di memori: tidak ditulis ke browser dan hilang saat halaman di-refresh.
         </p>
       </div>
       <div class="row" style="flex-wrap: nowrap">

@@ -15,22 +15,24 @@ export interface ParsedReceipt {
 }
 
 export const MODEL = 'gemini-2.5-flash'
-const KEY_STORAGE = 'barengin:gemini-key'
+/**
+ * API key hanya disimpan di memori (variabel modul), TIDAK di localStorage/sessionStorage/cookie.
+ * Key hilang saat halaman di-refresh atau ditutup, dan harus dimasukkan lagi.
+ */
+let memoryKey = ''
+
+// Bersihkan key yang pernah tersimpan oleh versi sebelumnya.
+try {
+  localStorage.removeItem('barengin:gemini-key')
+} catch {
+  /* storage diblokir: tidak ada yang perlu dibersihkan */
+}
 
 export function loadApiKey(): string {
-  try {
-    return localStorage.getItem(KEY_STORAGE) ?? ''
-  } catch {
-    return ''
-  }
+  return memoryKey
 }
 export function saveApiKey(key: string) {
-  try {
-    if (key) localStorage.setItem(KEY_STORAGE, key)
-    else localStorage.removeItem(KEY_STORAGE)
-  } catch {
-    /* storage diblokir: key hanya hidup selama sesi halaman */
-  }
+  memoryKey = key
 }
 
 const PROMPT = `Kamu membaca foto struk belanja/restoran Indonesia. Ekstrak datanya dengan teliti.
