@@ -58,7 +58,7 @@ async function copySummary() {
     </div>
 
     <div v-if="!expenses.length" class="text-small muted-text">
-      Belum ada item. Upload struk atau tambah pengeluaran manual.
+      Belum ada item. Tambahkan pengeluaran dulu.
     </div>
 
     <template v-else>

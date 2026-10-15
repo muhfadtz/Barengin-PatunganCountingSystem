@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { allocate, balances, computeShares, settle } from './split'
 import type { Expense, Member } from './split'
-import { cleanOcrText, parseReceipt, receiptTotal } from './receiptParser'
 import { buildWhatsAppMessage } from './whatsapp'
 import { rupiah, toInt } from './format'
 
@@ -72,51 +71,6 @@ describe('balances & settle', () => {
     expect(t).toHaveLength(2)
     expect(t.every((x) => x.to === 'a')).toBe(true)
     expect(t.reduce((s, x) => s + x.amount, 0)).toBe(60000)
-  })
-})
-
-describe('OCR parser', () => {
-  const text = `KEDAI MAKAN
-Kasir: Budi
-2 x Nasi Goreng 50.000
-Es Teh  10.000
-Service 5.000
-Diskon 3.000
-PPN 11% 6.600
-Total 68.600`
-  it('mengenali item, extra, dan total', () => {
-    const p = parseReceipt(text)
-    expect(p.items).toEqual([
-      { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
-      { name: 'Es Teh', qty: 1, subtotal: 10000 },
-    ])
-    expect(p.adjustment).toBe(8600)
-    expect(p.total).toBe(68600)
-  })
-  it('fallback total dari item + penyesuaian', () => {
-    const p = parseReceipt('Nasi Goreng @25.000 x2 50.000\nPajak 5.000')
-    expect(p.total).toBeNull()
-    expect(receiptTotal(p)).toBe(55000)
-  })
-})
-
-
-describe('cleanOcrText (keluaran PaddleOCR-VL)', () => {
-  it('meratakan tabel markdown dan HTML jadi baris biasa', () => {
-    const md = '| Item | Qty | Harga |\n|---|---|---|\n| Nasi Goreng | 2 | 50.000 |\n| Es Teh | 1 | 10.000 |'
-    const p = parseReceipt(md)
-    expect(p.items).toEqual([
-      { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
-      { name: 'Es Teh', qty: 1, subtotal: 10000 },
-    ])
-    const html = '<table><tr><td>Es Teh</td><td>10.000</td></tr><tr><td>PPN</td><td>1.100</td></tr></table>'
-    const q = parseReceipt(html)
-    expect(q.items).toEqual([{ name: 'Es Teh', qty: 1, subtotal: 10000 }])
-    expect(q.adjustment).toBe(1100)
-  })
-  it('membuang penanda markdown', () => {
-    expect(cleanOcrText('## **Total** 66.600')).toContain('Total')
-    expect(parseReceipt('## **Total** 66.600').total).toBe(66600)
   })
 })
 

@@ -6,7 +6,6 @@ import MemberAvatar from './components/MemberAvatar.vue'
 import BarenginLogo from './components/BarenginLogo.vue'
 import ExpenseForm from './components/ExpenseForm.vue'
 import ExpenseList from './components/ExpenseList.vue'
-import ReceiptBulkUpload from './components/ReceiptBulkUpload.vue'
 import ResultPanel from './components/ResultPanel.vue'
 import SessionStart from './components/SessionStart.vue'
 import { useStore } from './lib/store'
@@ -39,7 +38,6 @@ function notify(msg: string) {
 const members = computed(() => active.value?.members ?? [])
 const expenses = computed(() => active.value?.expenses ?? [])
 const openHistory = computed(() => history.value.find((s) => s.id === openHistoryId.value) ?? null)
-const receiptCount = computed(() => new Set(expenses.value.map((e) => e.source).filter((s) => s?.startsWith('Struk'))).size)
 
 const dateFmt = (t: number) =>
   new Date(t).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -103,10 +101,6 @@ function removeMember(id: string) {
 }
 
 /* ── Item ─────────────────────────────────────────────── */
-function onImport(list: Expense[], receipts: number) {
-  active.value?.expenses.push(...list)
-  notify(`${list.length} item dari ${receipts} struk ditambahkan`)
-}
 function addExpense(e: Expense) {
   active.value?.expenses.push(e)
   notify('Pengeluaran ditambahkan')
@@ -166,13 +160,7 @@ function setAllPayer(id: string) {
               </div>
             </section>
 
-            <!-- 1. Upload bulk -->
-            <section class="section" aria-labelledby="upload-title">
-              <h2 id="upload-title" class="h3">Struk</h2>
-              <ReceiptBulkUpload :members="members" :compact="expenses.length > 0" :source-offset="receiptCount" @import="onImport" />
-            </section>
-
-            <!-- 2 + 3. Anggota (ringkas) & daftar item -->
+            <!-- Anggota (ringkas) & daftar item -->
             <section class="section" style="gap: 12px" aria-labelledby="list-title">
               <div class="member-bar">
                 <button
@@ -235,7 +223,7 @@ function setAllPayer(id: string) {
 
               <ExpenseForm v-if="showExpenseForm" :members="members" @add="addExpense" @close="showExpenseForm = false" />
 
-              <div v-if="!expenses.length" class="empty">Belum ada item. Upload struk di atas, atau tambah manual.</div>
+              <div v-if="!expenses.length" class="empty">Belum ada item. Tekan “Tambah item” untuk mulai mencatat.</div>
               <template v-else>
                 <div class="row text-small">
                   <span class="muted-text">Semua dibayar oleh</span>

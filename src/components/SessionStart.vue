@@ -41,7 +41,7 @@ function remove(id: string) {
     <div>
       <h2 id="start-title" class="h2">Mulai sesi baru</h2>
       <p class="muted-text" style="margin-top: 8px">
-        Sesi tetap aktif sampai kamu menutupnya, lalu masuk ke riwayat. Setelah mulai, langsung upload struk.
+        Sesi tetap aktif sampai kamu menutupnya, lalu masuk ke riwayat. Setelah mulai, langsung catat pengeluarannya.
       </p>
     </div>
 

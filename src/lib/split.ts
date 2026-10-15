@@ -16,7 +16,7 @@ export interface Expense {
   tax: number
   paidBy: string
   split: Split
-  /** Asal item, mis. "Struk 1" untuk hasil scan. */
+  /** Asal item (mis. "Manual"). */
   source?: string
 }
 
