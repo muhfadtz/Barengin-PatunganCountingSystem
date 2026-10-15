@@ -47,7 +47,8 @@ Aturan:
 - "adjustment": jumlah semua pajak (PPN/tax), service charge, dan biaya tambahan sebagai angka positif, dikurangi semua diskon/promo/voucher. Hasil bisa negatif. 0 jika tidak ada.
 - "total": total akhir yang tertulis di struk (grand total / total bayar), atau null jika tidak terbaca.
 - Format angka Indonesia: titik = pemisah ribuan ("25.000" = 25000).
-- Jika foto bukan struk atau tidak terbaca, kembalikan items kosong.`
+- Gambar bisa berupa foto struk kertas ATAU screenshot rincian pesanan dari aplikasi (GoFood, GrabFood, ShopeeFood, kasir digital, m-banking, dll). Untuk screenshot, ambil daftar menu/barang beserta harganya; biaya pengiriman, biaya layanan/aplikasi, dan pajak masuk ke "adjustment", potongan/voucher dikurangkan.
+- Kembalikan items kosong HANYA jika benar-benar tidak ada daftar barang/menu sama sekali.`
 
 const SCHEMA = {
   type: 'OBJECT',
@@ -90,10 +91,10 @@ export function normalizeReceipt(raw: unknown): ParsedReceipt {
   return { items, adjustment: toInt(r.adjustment), total: total && total > 0 ? total : null }
 }
 
-/** Perkecil foto (maks 1600px) agar upload ringan; kembalikan base64 JPEG. */
+/** Perkecil foto (maks 2000px) agar upload ringan; kembalikan base64 JPEG. */
 async function toBase64Jpeg(file: File): Promise<string> {
   const bmp = await createImageBitmap(file)
-  const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height))
+  const scale = Math.min(1, 2000 / Math.max(bmp.width, bmp.height))
   const canvas = document.createElement('canvas')
   canvas.width = Math.round(bmp.width * scale)
   canvas.height = Math.round(bmp.height * scale)
@@ -112,7 +113,20 @@ export class GeminiError extends Error {
   }
 }
 
-export async function scanReceipt(file: File, apiKey: string): Promise<ParsedReceipt> {
+function buildPrompt(ocrHint: string): string {
+  const hint = ocrHint.trim().slice(0, 4000)
+  if (!hint) return PROMPT
+  return [
+    PROMPT,
+    '',
+    'Teks hasil OCR lokal (bisa salah baca / berantakan; gambar adalah acuan utama, pakai teks ini hanya untuk membantu memastikan angka dan nama):',
+    '"""',
+    hint,
+    '"""',
+  ].join('\n')
+}
+
+export async function scanReceipt(file: File, apiKey: string, ocrHint = ''): Promise<ParsedReceipt> {
   const data = await toBase64Jpeg(file).catch(() => {
     throw new GeminiError('Gambar tidak bisa dibuka')
   })
@@ -124,7 +138,7 @@ export async function scanReceipt(file: File, apiKey: string): Promise<ParsedRec
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: 'image/jpeg', data } }] }],
+          contents: [{ parts: [{ text: buildPrompt(ocrHint) }, { inline_data: { mime_type: 'image/jpeg', data } }] }],
           generationConfig: {
             temperature: 0,
             responseMimeType: 'application/json',

@@ -2,6 +2,9 @@
 import { computed, ref } from 'vue'
 import { CircleAlert, CircleCheck, ImagePlus, KeyRound, LoaderCircle, ScanLine } from 'lucide-vue-next'
 import { GeminiError, hasEnvKey, loadApiKey, saveApiKey, scanReceipt } from '../lib/gemini'
+import type { ParsedReceipt } from '../lib/gemini'
+import { createLocalOcr, parseReceipt } from '../lib/ocr'
+import { mergeReceipts } from '../lib/merge'
 import { uid } from '../lib/format'
 import type { Expense, Member } from '../lib/split'
 
@@ -13,6 +16,7 @@ interface Job {
   status: 'waiting' | 'reading' | 'done' | 'error'
   progress: number
   count: number
+  via?: 'gemini' | 'ocr' | 'none'
 }
 
 const jobs = ref<Job[]>([])
@@ -60,7 +64,7 @@ async function processFiles(list: FileList | File[] | null | undefined) {
   const all = props.members.map((m) => m.id)
   let receipts = 0
 
-  const handle = (job: Job, parsed: Awaited<ReturnType<typeof scanReceipt>>) => {
+  const handle = (job: Job, parsed: ParsedReceipt) => {
     job.count = parsed.items.length
     if (!parsed.items.length) return
     receipts++
@@ -79,33 +83,56 @@ async function processFiles(list: FileList | File[] | null | undefined) {
     })
   }
 
-  // Dua struk sekaligus; urutan hasil mengikuti urutan file.
-  const results: (Awaited<ReturnType<typeof scanReceipt>> | null)[] = files.map(() => null)
+  // Dua struk sekaligus; tiap struk: OCR lokal → Gemini (dibantu teks OCR) → gabung. Urutan hasil mengikuti urutan file.
+  const results: (ParsedReceipt | null)[] = files.map(() => null)
   let next = 0
-  let fatal = false
+  let useAi = true
+  const lastErrors = new Set<string>()
   async function worker() {
-    while (!fatal && next < files.length) {
-      const i = next++
-      const job = jobs.value[i]
-      job.status = 'reading'
-      job.progress = 0.5
-      try {
-        results[i] = await scanReceipt(files[i], apiKey.value)
-        job.status = 'done'
-      } catch (e) {
-        job.status = 'error'
-        const msg = e instanceof GeminiError ? e.message : 'Gagal memproses struk'
-        error.value = msg
-        if (e instanceof GeminiError && e.fatal) {
-          fatal = true
-          editingKey.value = true
+    const ocr = createLocalOcr()
+    try {
+      while (next < files.length) {
+        const i = next++
+        const job = jobs.value[i]
+        job.status = 'reading'
+        job.progress = 0.1
+
+        let text = ''
+        let local: ParsedReceipt | null = null
+        try {
+          text = await ocr.recognize(files[i])
+          local = parseReceipt(text)
+        } catch {
+          /* OCR lokal gagal (mis. offline saat unduh data bahasa): lanjut hanya dengan Gemini */
         }
+        job.progress = 0.4
+
+        let ai: ParsedReceipt | null = null
+        if (useAi) {
+          try {
+            ai = await scanReceipt(files[i], apiKey.value, text)
+          } catch (e) {
+            lastErrors.add(e instanceof GeminiError ? e.message : 'Gagal memproses struk')
+            if (e instanceof GeminiError && e.fatal) {
+              useAi = false
+              editingKey.value = true
+            }
+          }
+        }
+
+        const merged = mergeReceipts(ai, local)
+        results[i] = merged.receipt.items.length ? merged.receipt : null
+        job.via = merged.source
+        job.status = merged.source === 'none' && !ai && !local ? 'error' : 'done'
+        job.progress = 1
       }
-      job.progress = 1
+    } finally {
+      await ocr.close()
     }
   }
   await Promise.all([worker(), worker()])
   results.forEach((r, i) => r && handle(jobs.value[i], r))
+  if (lastErrors.size) error.value = [...lastErrors].join(' ')
 
   busy.value = false
   if (imported.length) emit('import', imported, receipts)
@@ -160,7 +187,7 @@ function onDrop(e: DragEvent) {
         <ScanLine :size="36" stroke-width="1.8" aria-hidden="true" />
         <span class="text-body-md">Upload atau scan struk — bisa banyak sekaligus</span>
         <span class="text-small muted-text">
-          Pilih beberapa foto, atau tarik &amp; lepas. Dibaca oleh Gemini dan langsung jadi daftar item.
+          Pilih beberapa foto, atau tarik &amp; lepas. Dibaca OCR lokal + Gemini lalu digabung jadi daftar item.
         </span>
       </template>
       <input type="file" accept="image/*" multiple :disabled="busy" class="sr-only" @change="onPick" />
@@ -188,7 +215,7 @@ function onDrop(e: DragEvent) {
           <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ j.name }}</span>
         </span>
         <span class="muted-text money">
-          <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item` : 'Tidak terbaca' }}</template>
+          <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item · ${j.via === 'ocr' ? 'OCR lokal' : 'Gemini'}` : 'Tidak terbaca' }}</template>
           <template v-else-if="j.status === 'error'">Gagal</template>
           <template v-else-if="j.status === 'reading'">{{ Math.round(j.progress * 100) }}%</template>
           <template v-else>Menunggu</template>
