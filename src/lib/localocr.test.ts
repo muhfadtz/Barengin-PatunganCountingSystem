@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-const createWorker = vi.fn(async () => ({
+const createWorker = vi.fn(async (_lang: string) => ({
   recognize: async () => ({ data: { text: 'halo' } }),
   setParameters: async () => undefined,
   terminate: async () => undefined,
