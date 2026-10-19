@@ -24,7 +24,7 @@ export function createLocalOcr() {
 
   function start(): Promise<Worker> {
     return import('tesseract.js').then(async (t) => {
-      const w = (await t.createWorker('eng', 1, {
+      const w = (await t.createWorker('ind+eng', 1, {
         logger: (m: { status: string; progress: number }) => {
           if (m.status === 'recognizing text') onProgress?.(m.progress)
         },
