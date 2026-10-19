@@ -7,7 +7,7 @@ declare module '*.vue' {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_LLM_MODEL?: string
+  readonly VITE_GEMINI_MODEL?: string
 }
 interface ImportMeta {
   readonly env: ImportMetaEnv

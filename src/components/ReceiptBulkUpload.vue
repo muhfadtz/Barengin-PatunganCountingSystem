@@ -1,16 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { CircleAlert, CircleCheck, ImagePlus, LoaderCircle, ScanLine } from 'lucide-vue-next'
-import { createLocalOcr, OcrError } from '../lib/localocr'
-import type { OcrLang } from '../lib/localocr'
-import { groundInText, LlmError, parseWithLlm } from '../lib/llmParser'
-import { mergeReceipts } from '../lib/merge'
-import { parseReceipt } from '../lib/receiptParser'
-import type { ParsedReceipt } from '../lib/receiptParser'
-import { uid } from '../lib/format'
+import { GeminiError, scanReceipt, totalGap } from '../lib/gemini'
+import type { ParsedReceipt } from '../lib/gemini'
+import { rupiah, uid } from '../lib/format'
 import type { Expense, Member } from '../lib/split'
 
-const props = defineProps<{ members: Member[]; compact: boolean; sourceOffset: number; lang: OcrLang }>()
+const props = defineProps<{ members: Member[]; compact: boolean; sourceOffset: number }>()
 const emit = defineEmits<{ (e: 'import', list: Expense[], receipts: number): void }>()
 
 interface Job {
@@ -18,14 +14,13 @@ interface Job {
   status: 'waiting' | 'reading' | 'done' | 'error'
   progress: number
   count: number
-  via?: 'llm' | 'rules' | 'none'
-  text?: string
+  /** Selisih total struk vs jumlah item; bukan 0 → patut dicek. */
+  gap?: number | null
 }
 
 const jobs = ref<Job[]>([])
 const busy = ref(false)
 const dragging = ref(false)
-const openText = ref(-1)
 const error = ref('')
 
 const finished = computed(() => jobs.value.filter((j) => j.status === 'done' || j.status === 'error').length)
@@ -69,52 +64,32 @@ async function processFiles(list: FileList | File[] | null | undefined) {
     })
   }
 
-  // Satu per satu (satu worker Tesseract); tiap struk: Tesseract.js → teks → LLM kecil + parser aturan → gabung.
+  // Dua struk sekaligus; urutan hasil mengikuti urutan file.
   const results: (ParsedReceipt | null)[] = files.map(() => null)
   let next = 0
   let stop = false
-  let llmDown = false
   const errors = new Set<string>()
-  const ocr = createLocalOcr(props.lang)
   async function worker() {
     while (!stop && next < files.length) {
       const i = next++
       const job = jobs.value[i]
       job.status = 'reading'
-      job.progress = 0.3
+      job.progress = 0.5
       try {
-        const text = await ocr.recognize(files[i], (p) => (job.progress = 0.05 + p * 0.65))
-        job.text = text
-        job.progress = 0.7
-        const rules = parseReceipt(text)
-        let ai: ParsedReceipt | null = null
-        if (!llmDown) {
-          try {
-            ai = groundInText(await parseWithLlm(text), text)
-          } catch (e) {
-            // LLM tidak tersedia: lanjut dengan parser aturan saja, jangan menghentikan proses.
-            llmDown = e instanceof LlmError && !/JSON|teks|Respons/.test(e.message)
-            errors.add(`Parser AI dilewati: ${e instanceof LlmError ? e.message : 'gagal dipanggil'}`)
-          }
-        }
-        const merged = mergeReceipts(ai, rules)
-        job.via = merged.source
-        results[i] = merged.receipt.items.length ? merged.receipt : null
+        const parsed = await scanReceipt(files[i])
+        job.gap = totalGap(parsed)
+        results[i] = parsed.items.length ? parsed : null
         job.status = 'done'
       } catch (e) {
         job.status = 'error'
-        errors.add(e instanceof OcrError ? e.message : 'Gagal memproses struk')
-        // OCR gagal dimuat (mis. offline): tidak ada gunanya melanjutkan file lain.
-        if (e instanceof OcrError && e.fatal) stop = true
+        errors.add(e instanceof GeminiError ? e.message : 'Gagal memproses struk')
+        // Key salah / model tidak ada: tidak ada gunanya melanjutkan file lain.
+        if (e instanceof GeminiError && e.fatal) stop = true
       }
       job.progress = 1
     }
   }
-  try {
-    await worker()
-  } finally {
-    await ocr.close()
-  }
+  await Promise.all([worker(), worker()])
   results.forEach((r, i) => r && handle(jobs.value[i], r))
   if (errors.size) error.value = [...errors].join(' ')
 
@@ -155,7 +130,7 @@ function onDrop(e: DragEvent) {
         <ScanLine :size="36" stroke-width="1.8" aria-hidden="true" />
         <span class="text-body-md">Upload atau scan struk — bisa banyak sekaligus</span>
         <span class="text-small muted-text">
-          Pilih beberapa foto, atau tarik &amp; lepas. Dibaca OCR di browser, lalu dirapikan AI jadi daftar item.
+          Pilih beberapa foto, atau tarik &amp; lepas. Dibaca Gemini lalu langsung jadi daftar item.
         </span>
       </template>
       <input type="file" accept="image/*" multiple :disabled="busy" class="sr-only" @change="onPick" />
@@ -175,17 +150,14 @@ function onDrop(e: DragEvent) {
           <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ j.name }}</span>
         </span>
         <span class="muted-text money">
-          <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item · ${j.via === 'llm' ? 'AI' : 'parser dasar'}` : 'Tidak terbaca' }}</template>
+          <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item` : 'Tidak terbaca' }}</template>
           <template v-else-if="j.status === 'error'">Gagal</template>
           <template v-else-if="j.status === 'reading'">{{ Math.round(j.progress * 100) }}%</template>
           <template v-else>Menunggu</template>
         </span>
-        <div v-if="j.status === 'done' && !j.count && j.text !== undefined" style="flex-basis: 100%">
-          <button type="button" class="link-btn" @click="openText = openText === i ? -1 : i">
-            {{ openText === i ? 'Sembunyikan teks OCR' : 'Lihat teks OCR' }}
-          </button>
-          <pre v-if="openText === i" class="text-tiny" style="white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; max-height: 160px; overflow: auto">{{ j.text || '(kosong)' }}</pre>
-        </div>
+        <p v-if="j.status === 'done' && j.count && j.gap" class="text-tiny neg" style="flex-basis: 100%; margin: 0">
+          Total di struk berbeda {{ rupiah(Math.abs(j.gap)) }} dari jumlah item — periksa angkanya.
+        </p>
       </li>
     </ul>
 

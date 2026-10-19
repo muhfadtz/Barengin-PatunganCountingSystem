@@ -2,21 +2,17 @@
 import { computed, ref } from 'vue'
 import { FlaskConical, Play, Plus, X } from 'lucide-vue-next'
 import MemberAvatar from './MemberAvatar.vue'
-import SegmentedControl from './SegmentedControl.vue'
-import { OCR_LANGS } from '../lib/localocr'
-import type { OcrLang } from '../lib/localocr'
 import type { Member } from '../lib/split'
 import { uid } from '../lib/format'
 import { DEFAULT_CUSTOM_MEMBERS, DUO_MEMBERS } from '../lib/sample'
 
 const emit = defineEmits<{
-  (e: 'start', name: string, members: Member[], lang: OcrLang): void
+  (e: 'start', name: string, members: Member[]): void
   (e: 'sample'): void
   (e: 'notify', msg: string): void
 }>()
 
 const sessionName = ref('')
-const lang = ref<OcrLang>('ind+eng')
 const members = ref<Member[]>(DUO_MEMBERS.map((m) => ({ ...m })))
 const newName = ref('')
 
@@ -79,14 +75,8 @@ function remove(id: string) {
       <p v-if="!canStart" class="hint">Minimal 2 orang.</p>
     </div>
 
-    <div>
-      <span class="label">Bahasa struk (untuk scan)</span>
-      <SegmentedControl v-model="lang" :options="OCR_LANGS" aria-label="Bahasa OCR" />
-      <p class="hint">Pilih Indonesia untuk struk lokal, Inggris untuk struk berbahasa Inggris, atau Keduanya jika campuran.</p>
-    </div>
-
     <div class="row" style="gap: 12px">
-      <button type="button" class="btn btn-primary" :disabled="!canStart" @click="emit('start', sessionName, members, lang)">
+      <button type="button" class="btn btn-primary" :disabled="!canStart" @click="emit('start', sessionName, members)">
         <Play :size="20" aria-hidden="true" />
         Mulai sesi
       </button>

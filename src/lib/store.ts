@@ -1,7 +1,6 @@
 import { computed, ref } from 'vue'
 import type { Expense, Member } from './split'
 import { uid } from './format'
-import type { OcrLang } from './localocr'
 
 /**
  * Satu sesi patungan, hanya di memori. Tidak ada localStorage / sessionStorage / cookie:
@@ -13,8 +12,6 @@ export interface Session {
   createdAt: number
   members: Member[]
   expenses: Expense[]
-  /** Bahasa OCR struk, dipilih saat sesi dimulai. */
-  ocrLang: OcrLang
 }
 
 // Hapus data yang pernah ditulis versi sebelumnya (sesi, riwayat, API key).
@@ -27,7 +24,7 @@ try {
 const session = ref<Session | null>(null)
 const active = computed(() => session.value)
 
-function startSession(name: string, members: Member[], expenses: Expense[] = [], ocrLang: OcrLang = 'ind+eng'): Session {
+function startSession(name: string, members: Member[], expenses: Expense[] = []): Session {
   const now = new Date()
   session.value = {
     id: uid(),
@@ -35,7 +32,6 @@ function startSession(name: string, members: Member[], expenses: Expense[] = [],
     createdAt: now.getTime(),
     members: members.map((m) => ({ ...m })),
     expenses,
-    ocrLang,
   }
   return session.value
 }

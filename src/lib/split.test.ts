@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { allocate, balances, computeShares, settle } from './split'
 import type { Expense, Member } from './split'
-import { extractJson, groundInText, normalizeReceipt } from './llmParser'
-import { mergeReceipts } from './merge'
-import { cleanOcrText, parseReceipt, receiptTotal } from './receiptParser'
+import { normalizeReceipt, totalGap } from './gemini'
 import { buildWhatsAppMessage } from './whatsapp'
 import { rupiah, toInt } from './format'
 
@@ -77,57 +75,8 @@ describe('balances & settle', () => {
   })
 })
 
-describe('OCR parser', () => {
-  const text = `KEDAI MAKAN
-Kasir: Budi
-2 x Nasi Goreng 50.000
-Es Teh  10.000
-Service 5.000
-Diskon 3.000
-PPN 11% 6.600
-Total 68.600`
-  it('mengenali item, extra, dan total', () => {
-    const p = parseReceipt(text)
-    expect(p.items).toEqual([
-      { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
-      { name: 'Es Teh', qty: 1, subtotal: 10000 },
-    ])
-    expect(p.adjustment).toBe(8600)
-    expect(p.total).toBe(68600)
-  })
-  it('fallback total dari item + penyesuaian', () => {
-    const p = parseReceipt('Nasi Goreng @25.000 x2 50.000\nPajak 5.000')
-    expect(p.total).toBeNull()
-    expect(receiptTotal(p)).toBe(55000)
-  })
-})
-describe('cleanOcrText (keluaran PaddleOCR-VL)', () => {
-  it('meratakan tabel markdown dan HTML jadi baris biasa', () => {
-    const md = '| Item | Qty | Harga |\n|---|---|---|\n| Nasi Goreng | 2 | 50.000 |\n| Es Teh | 1 | 10.000 |'
-    const p = parseReceipt(md)
-    expect(p.items).toEqual([
-      { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
-      { name: 'Es Teh', qty: 1, subtotal: 10000 },
-    ])
-    const html = '<table><tr><td>Es Teh</td><td>10.000</td></tr><tr><td>PPN</td><td>1.100</td></tr></table>'
-    const q = parseReceipt(html)
-    expect(q.items).toEqual([{ name: 'Es Teh', qty: 1, subtotal: 10000 }])
-    expect(q.adjustment).toBe(1100)
-  })
-  it('membuang penanda markdown', () => {
-    expect(cleanOcrText('## **Total** 66.600')).toContain('Total')
-    expect(parseReceipt('## **Total** 66.600').total).toBe(66600)
-  })
-})
-
-describe('llmParser', () => {
-  it('extractJson menoleransi pembungkus markdown dan teks tambahan', () => {
-    expect(extractJson('```json\n{"items":[]}\n```')).toEqual({ items: [] })
-    expect(extractJson('Berikut hasilnya: {"a":1} semoga membantu')).toEqual({ a: 1 })
-    expect(() => extractJson('tidak ada json')).toThrow()
-    expect(() => extractJson('{rusak')).toThrow()
-  })
-  it('normalizeReceipt memaksa integer dan membuang item tidak valid', () => {
+describe('gemini: normalizeReceipt & totalGap', () => {
+  it('memaksa integer dan membuang item tidak valid', () => {
     const p = normalizeReceipt({
       items: [
         { name: '  Nasi   Goreng ', qty: 2, subtotal: '50.000' },
@@ -145,48 +94,13 @@ describe('llmParser', () => {
     expect(p.adjustment).toBe(8600)
     expect(p.total).toBe(68600)
     expect(normalizeReceipt(null)).toEqual({ items: [], adjustment: 0, total: null })
+    expect(normalizeReceipt({ items: [], adjustment: -3000, total: null }).adjustment).toBe(-3000)
   })
-})
-
-describe('groundInText (anti halusinasi LLM)', () => {
-  const llm = {
-    items: [
-      { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
-      { name: 'Karangan', qty: 1, subtotal: 99999 },
-      { name: 'Es Teh', qty: 3, subtotal: 30000 },
-    ],
-    adjustment: 6000,
-    total: 123456,
-  }
-  it('membuang item yang nominalnya tidak ada di teks OCR', () => {
-    const out = groundInText(llm, 'Nasi Goreng 2  50.000\nEs Teh 3 x 10.000\nPPN 6.000')
-    expect(out.items.map((i) => i.name)).toEqual(['Nasi Goreng', 'Es Teh']) // Es Teh lolos lewat harga satuan x qty
-    expect(out.total).toBeNull()
-  })
-  it('teks tanpa angka → semua item dibuang', () => {
-    expect(groundInText(llm, 'xx ## ??').items).toEqual([])
-  })
-})
-
-describe('mergeReceipts', () => {
-  const r = (items: number[], adjustment = 0, total: number | null = null) => ({
-    items: items.map((n, i) => ({ name: `I${i}`, qty: 1, subtotal: n })),
-    adjustment,
-    total,
-  })
-  it('hanya salah satu punya item', () => {
-    expect(mergeReceipts(r([]), r([1000])).source).toBe('rules')
-    expect(mergeReceipts(r([1000]), null).source).toBe('llm')
-    expect(mergeReceipts(null, null).source).toBe('none')
-  })
-  it('memilih yang totalnya cocok, dan melengkapi pajak', () => {
-    const out = mergeReceipts(r([10000, 20000], 0, 33000), r([10000, 20000], 3000, 33000))
-    expect(out.source).toBe('llm')
-    expect(out.receipt.adjustment).toBe(3000)
-    expect(mergeReceipts(r([10000, 25000], 0, 30000), r([10000, 20000], 0, 30000)).source).toBe('rules')
-  })
-  it('seri → utamakan LLM', () => {
-    expect(mergeReceipts(r([1000]), r([2000])).source).toBe('llm')
+  it('totalGap: 0 jika cocok, selisih jika tidak, null jika total tak terbaca', () => {
+    const items = [{ name: 'A', qty: 1, subtotal: 60000 }]
+    expect(totalGap({ items, adjustment: 6600, total: 66600 })).toBe(0)
+    expect(totalGap({ items, adjustment: 0, total: 66600 })).toBe(6600)
+    expect(totalGap({ items, adjustment: 0, total: null })).toBeNull()
   })
 })
 
