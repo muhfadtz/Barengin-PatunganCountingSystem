@@ -28,7 +28,9 @@ export interface ParsedReceipt {
 const FORCED = (import.meta.env.VITE_GEMINI_MODEL ?? '').trim()
 const BASE = '/api/gemini/v1beta/models'
 /** Dipakai hanya bila daftar model tidak bisa diambil (selain karena key salah). */
-const FALLBACK_MODELS = ['gemini-2.5-flash']
+// `gemini-flash-latest` = alias resmi Google yang selalu menunjuk Flash terbaru (tidak ikut pensiun bersama versi lama).
+const ALIAS = 'gemini-flash-latest'
+const FALLBACK_MODELS = [ALIAS, 'gemini-2.5-flash']
 
 const PROMPT = `Kamu membaca foto struk belanja/restoran Indonesia. Ekstrak datanya dengan teliti.
 
@@ -122,6 +124,26 @@ export function parseRetryDelay(body: unknown): number | null {
   return null
 }
 
+/** Baca pesan galat dari Google. `isGoogle` false = isi bukan JSON galat Google (mis. halaman 404 hosting/proxy). */
+async function readGoogleError(res: Response): Promise<{ message: string; isGoogle: boolean }> {
+  try {
+    const j = JSON.parse(await res.text()) as { error?: { message?: unknown; status?: unknown } }
+    const message = typeof j.error?.message === 'string' ? j.error.message : ''
+    return { message, isGoogle: !!message || typeof j.error?.status === 'string' }
+  } catch {
+    return { message: '', isGoogle: false }
+  }
+}
+
+const proxyMissing = () =>
+  new GeminiError(
+    'Proxy /api/gemini tidak ditemukan (404 bukan dari Google). Di Vercel pastikan fungsi api/gemini ikut ter-deploy dan GEMINI_API_KEY sudah diisi; di lokal restart `npm run dev`.',
+    true,
+  )
+
+/** Pesan 404 terakhir dari Google (mis. "models/x is not found for API version v1beta"), untuk ditampilkan. */
+let lastNotFound = ''
+
 const MAX_RETRIES = 3
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -156,7 +178,12 @@ async function callModel(model: string, data: string, onWait?: (sec: number) => 
     await sleep(sec * 1000)
   }
 
-  if (res.status === 404) return null
+  if (res.status === 404) {
+    const { message, isGoogle } = await readGoogleError(res)
+    if (!isGoogle) throw proxyMissing()
+    lastNotFound = message
+    return null
+  }
   if (res.status === 400 || res.status === 401 || res.status === 403)
     throw new GeminiError('API key Gemini ditolak atau belum diisi. Periksa GEMINI_API_KEY (di .env, atau Environment Variables di Vercel).', true)
   if (!res.ok) throw new GeminiError(`Gemini error (${res.status})`)
@@ -213,12 +240,13 @@ async function discoverModels(): Promise<string[]> {
   }
   if (res.status === 400 || res.status === 401 || res.status === 403)
     throw new GeminiError('API key Gemini ditolak atau belum diisi. Periksa GEMINI_API_KEY (di .env, atau Environment Variables di Vercel).', true)
+  if (res.status === 404 && !(await readGoogleError(res.clone())).isGoogle) throw proxyMissing()
   if (!res.ok) return FALLBACK_MODELS
   try {
     const picked = pickModels(((await res.json()) as { models?: ModelInfo[] }).models ?? [])
     if (!picked.length)
       throw new GeminiError('API key ini tidak punya akses ke model Gemini Flash yang bisa membaca gambar.', true)
-    return picked
+    return [...picked, ALIAS].filter((m, i, a) => a.indexOf(m) === i)
   } catch (e) {
     if (e instanceof GeminiError) throw e
     return FALLBACK_MODELS
@@ -249,10 +277,12 @@ export async function scanReceipt(file: File, onWait?: (sec: number) => void): P
   }
   candidates = null
   firstTry = 0
+  const detail = lastNotFound
+  lastNotFound = ''
   throw new GeminiError(
     FORCED
-      ? `Model "${FORCED}" tidak ditemukan untuk key ini. Hapus VITE_GEMINI_MODEL dari .env agar dipilih otomatis.`
-      : `Tidak ada model yang bisa dipakai (dicoba: ${models.join(', ')}).`,
+      ? `Model "${FORCED}" tidak ditemukan untuk key ini. Hapus VITE_GEMINI_MODEL dari .env agar dipilih otomatis.${detail ? ` Google: ${detail}` : ''}`
+      : `Tidak ada model yang bisa dipakai (dicoba: ${models.join(', ')}).${detail ? ` Google: ${detail}` : ''}`,
     true,
   )
 }
