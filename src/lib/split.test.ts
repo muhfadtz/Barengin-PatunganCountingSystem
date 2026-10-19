@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { allocate, balances, computeShares, settle } from './split'
 import type { Expense, Member } from './split'
 import { parseSse } from './unlimitedocr'
+import { extractJson, groundInText, normalizeReceipt } from './llmParser'
+import { mergeReceipts } from './merge'
 import { cleanOcrText, parseReceipt, receiptTotal } from './receiptParser'
 import { buildWhatsAppMessage } from './whatsapp'
 import { rupiah, toInt } from './format'
@@ -131,6 +133,76 @@ describe('parseSse (API Gradio)', () => {
     expect(() => parseSse('event: error\ndata: null\n')).toThrow()
     expect(() => parseSse('event: error\ndata: "boom"\n')).toThrow()
     expect(() => parseSse('')).toThrow()
+  })
+})
+
+describe('llmParser', () => {
+  it('extractJson menoleransi pembungkus markdown dan teks tambahan', () => {
+    expect(extractJson('```json\n{"items":[]}\n```')).toEqual({ items: [] })
+    expect(extractJson('Berikut hasilnya: {"a":1} semoga membantu')).toEqual({ a: 1 })
+    expect(() => extractJson('tidak ada json')).toThrow()
+    expect(() => extractJson('{rusak')).toThrow()
+  })
+  it('normalizeReceipt memaksa integer dan membuang item tidak valid', () => {
+    const p = normalizeReceipt({
+      items: [
+        { name: '  Nasi   Goreng ', qty: 2, subtotal: '50.000' },
+        { name: 'Es Teh', qty: 0, subtotal: 10000 },
+        { name: '', qty: 1, subtotal: 5000 },
+        { name: 'Gratis', qty: 1, subtotal: 0 },
+      ],
+      adjustment: '8.600',
+      total: 68600,
+    })
+    expect(p.items).toEqual([
+      { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
+      { name: 'Es Teh', qty: 1, subtotal: 10000 },
+    ])
+    expect(p.adjustment).toBe(8600)
+    expect(p.total).toBe(68600)
+    expect(normalizeReceipt(null)).toEqual({ items: [], adjustment: 0, total: null })
+  })
+})
+
+describe('groundInText (anti halusinasi LLM)', () => {
+  const llm = {
+    items: [
+      { name: 'Nasi Goreng', qty: 2, subtotal: 50000 },
+      { name: 'Karangan', qty: 1, subtotal: 99999 },
+      { name: 'Es Teh', qty: 3, subtotal: 30000 },
+    ],
+    adjustment: 6000,
+    total: 123456,
+  }
+  it('membuang item yang nominalnya tidak ada di teks OCR', () => {
+    const out = groundInText(llm, 'Nasi Goreng 2  50.000\nEs Teh 3 x 10.000\nPPN 6.000')
+    expect(out.items.map((i) => i.name)).toEqual(['Nasi Goreng', 'Es Teh']) // Es Teh lolos lewat harga satuan x qty
+    expect(out.total).toBeNull()
+  })
+  it('teks tanpa angka → semua item dibuang', () => {
+    expect(groundInText(llm, 'xx ## ??').items).toEqual([])
+  })
+})
+
+describe('mergeReceipts', () => {
+  const r = (items: number[], adjustment = 0, total: number | null = null) => ({
+    items: items.map((n, i) => ({ name: `I${i}`, qty: 1, subtotal: n })),
+    adjustment,
+    total,
+  })
+  it('hanya salah satu punya item', () => {
+    expect(mergeReceipts(r([]), r([1000])).source).toBe('rules')
+    expect(mergeReceipts(r([1000]), null).source).toBe('llm')
+    expect(mergeReceipts(null, null).source).toBe('none')
+  })
+  it('memilih yang totalnya cocok, dan melengkapi pajak', () => {
+    const out = mergeReceipts(r([10000, 20000], 0, 33000), r([10000, 20000], 3000, 33000))
+    expect(out.source).toBe('llm')
+    expect(out.receipt.adjustment).toBe(3000)
+    expect(mergeReceipts(r([10000, 25000], 0, 30000), r([10000, 20000], 0, 30000)).source).toBe('rules')
+  })
+  it('seri → utamakan LLM', () => {
+    expect(mergeReceipts(r([1000]), r([2000])).source).toBe('llm')
   })
 })
 

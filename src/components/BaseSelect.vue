@@ -23,6 +23,9 @@ const open = ref(false)
 const up = ref(false)
 const active = ref(-1)
 
+// Dua opsi atau kurang (mis. Gue & Dia): tampilkan tombol langsung, bukan dropdown.
+const segmented = computed(() => props.options.length <= 2)
+
 const current = computed(() => props.options.find((o) => o.value === props.modelValue))
 
 async function show() {
@@ -76,7 +79,24 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 </script>
 
 <template>
-  <div ref="root" class="select" :class="{ 'select-sm': small }" @keydown="onKey">
+  <div v-if="segmented" class="segmented-wrap" :class="{ 'select-sm': small }">
+    <span v-if="prefix" class="text-small muted-text">{{ prefix }}</span>
+    <div class="segmented" role="radiogroup" :aria-label="ariaLabel">
+      <button
+        v-for="o in options"
+        :key="o.value"
+        type="button"
+        role="radio"
+        class="segmented-item"
+        :class="{ 'segmented-active': o.value === modelValue }"
+        :aria-checked="o.value === modelValue"
+        @click="emit('update:modelValue', o.value)"
+      >
+        {{ o.label }}
+      </button>
+    </div>
+  </div>
+  <div v-else ref="root" class="select" :class="{ 'select-sm': small }" @keydown="onKey">
     <button
       type="button"
       class="select-trigger"

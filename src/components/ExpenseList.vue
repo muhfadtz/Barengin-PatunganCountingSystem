@@ -87,16 +87,17 @@ function splitLabel(e: Expense) {
               aria-label="Nama item"
               @change="setTitle(r.e, $event)"
             />
-            <div class="row" style="flex-wrap: nowrap">
+            <div class="row" style="flex-wrap: wrap">
               <input
                 :value="r.e.amount"
                 class="input"
+                style="flex: 1 1 110px; min-width: 0"
                 inputmode="numeric"
                 aria-label="Nominal item"
                 :disabled="!isEqual(r.e) && r.e.split.type !== 'exclusive'"
                 @change="setAmount(r.e, $event)"
               />
-              <BaseSelect v-model="r.e.paidBy" :options="memberOptions" prefix="Bayar:" aria-label="Dibayar oleh" style="min-width: 0" />
+              <BaseSelect v-model="r.e.paidBy" :options="memberOptions" prefix="Bayar:" small aria-label="Dibayar oleh" />
             </div>
           </div>
           <button type="button" class="icon-btn" :aria-label="`Hapus ${r.e.title}`" title="Hapus item" @click="emit('remove', r.e.id)">

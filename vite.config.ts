@@ -10,13 +10,24 @@ export default defineConfig(({ mode }) => {
   const target = (env.UNLIMITED_OCR_URL || 'https://baidu-unlimited-ocr.hf.space').trim().replace(/\/+$/, '')
 
   // Proxy `/api/ocr/*` → Space OCR dengan token HF di sisi server.
+  const llmTarget = (env.LLM_BASE_URL || 'https://router.huggingface.co').trim().replace(/\/+$/, '')
+  const auth = env.HF_TOKEN ? { Authorization: `Bearer ${env.HF_TOKEN}` } : {}
+
   const proxy: Record<string, ProxyOptions> = {
     '/api/ocr': {
       target,
       changeOrigin: true,
       secure: true,
       rewrite: (p) => p.replace(/^\/api\/ocr/, ''),
-      headers: env.HF_TOKEN ? { Authorization: `Bearer ${env.HF_TOKEN}` } : {},
+      headers: auth,
+    },
+    // LLM kecil untuk parsing teks OCR (Hugging Face Inference Providers, API OpenAI-compatible).
+    '/api/llm': {
+      target: llmTarget,
+      changeOrigin: true,
+      secure: true,
+      rewrite: (p) => p.replace(/^\/api\/llm/, ''),
+      headers: auth,
     },
   }
 

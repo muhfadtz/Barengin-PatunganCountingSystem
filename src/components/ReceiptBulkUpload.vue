@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue'
 import { CircleAlert, CircleCheck, ImagePlus, LoaderCircle, ScanLine } from 'lucide-vue-next'
 import { OcrError, recognizeReceipt } from '../lib/unlimitedocr'
+import { groundInText, LlmError, parseWithLlm } from '../lib/llmParser'
+import { mergeReceipts } from '../lib/merge'
 import { parseReceipt } from '../lib/receiptParser'
 import type { ParsedReceipt } from '../lib/receiptParser'
 import { uid } from '../lib/format'
@@ -15,11 +17,14 @@ interface Job {
   status: 'waiting' | 'reading' | 'done' | 'error'
   progress: number
   count: number
+  via?: 'llm' | 'rules' | 'none'
+  text?: string
 }
 
 const jobs = ref<Job[]>([])
 const busy = ref(false)
 const dragging = ref(false)
+const openText = ref(-1)
 const error = ref('')
 
 const finished = computed(() => jobs.value.filter((j) => j.status === 'done' || j.status === 'error').length)
@@ -63,10 +68,11 @@ async function processFiles(list: FileList | File[] | null | undefined) {
     })
   }
 
-  // Satu per satu (kuota/antrian ZeroGPU); tiap struk: Unlimited-OCR → teks → parser. Urutan hasil mengikuti urutan file.
+  // Satu per satu (kuota/antrian ZeroGPU); tiap struk: Unlimited-OCR → teks → LLM kecil + parser aturan → gabung.
   const results: (ParsedReceipt | null)[] = files.map(() => null)
   let next = 0
   let stop = false
+  let llmDown = false
   const errors = new Set<string>()
   async function worker() {
     while (!stop && next < files.length) {
@@ -75,8 +81,23 @@ async function processFiles(list: FileList | File[] | null | undefined) {
       job.status = 'reading'
       job.progress = 0.3
       try {
-        const parsed = parseReceipt(await recognizeReceipt(files[i]))
-        results[i] = parsed.items.length ? parsed : null
+        const text = await recognizeReceipt(files[i])
+        job.text = text
+        job.progress = 0.7
+        const rules = parseReceipt(text)
+        let ai: ParsedReceipt | null = null
+        if (!llmDown) {
+          try {
+            ai = groundInText(await parseWithLlm(text), text)
+          } catch (e) {
+            // LLM tidak tersedia: lanjut dengan parser aturan saja, jangan menghentikan proses.
+            llmDown = e instanceof LlmError && !/JSON|teks|Respons/.test(e.message)
+            errors.add(`Parser AI dilewati: ${e instanceof LlmError ? e.message : 'gagal dipanggil'}`)
+          }
+        }
+        const merged = mergeReceipts(ai, rules)
+        job.via = merged.source
+        results[i] = merged.receipt.items.length ? merged.receipt : null
         job.status = 'done'
       } catch (e) {
         job.status = 'error'
@@ -148,11 +169,17 @@ function onDrop(e: DragEvent) {
           <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ j.name }}</span>
         </span>
         <span class="muted-text money">
-          <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item` : 'Tidak terbaca' }}</template>
+          <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item · ${j.via === 'llm' ? 'AI' : 'parser dasar'}` : 'Tidak terbaca' }}</template>
           <template v-else-if="j.status === 'error'">Gagal</template>
           <template v-else-if="j.status === 'reading'">{{ Math.round(j.progress * 100) }}%</template>
           <template v-else>Menunggu</template>
         </span>
+        <div v-if="j.status === 'done' && !j.count && j.text !== undefined" style="flex-basis: 100%">
+          <button type="button" class="link-btn" @click="openText = openText === i ? -1 : i">
+            {{ openText === i ? 'Sembunyikan teks OCR' : 'Lihat teks OCR' }}
+          </button>
+          <pre v-if="openText === i" class="text-tiny" style="white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; max-height: 160px; overflow: auto">{{ j.text || '(kosong)' }}</pre>
+        </div>
       </li>
     </ul>
 
