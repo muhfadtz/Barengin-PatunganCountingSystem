@@ -16,6 +16,8 @@ interface Job {
   count: number
   /** Selisih total struk vs jumlah item; bukan 0 → patut dicek. */
   gap?: number | null
+  /** Detik menunggu batas permintaan Gemini. */
+  wait?: number
 }
 
 const jobs = ref<Job[]>([])
@@ -64,7 +66,7 @@ async function processFiles(list: FileList | File[] | null | undefined) {
     })
   }
 
-  // Dua struk sekaligus; urutan hasil mengikuti urutan file.
+  // Satu per satu: free tier Gemini punya batas permintaan per menit. Retry 429 ditangani di scanReceipt.
   const results: (ParsedReceipt | null)[] = files.map(() => null)
   let next = 0
   let stop = false
@@ -76,7 +78,8 @@ async function processFiles(list: FileList | File[] | null | undefined) {
       job.status = 'reading'
       job.progress = 0.5
       try {
-        const parsed = await scanReceipt(files[i])
+        const parsed = await scanReceipt(files[i], (sec) => (job.wait = sec))
+        job.wait = undefined
         job.gap = totalGap(parsed)
         results[i] = parsed.items.length ? parsed : null
         job.status = 'done'
@@ -89,7 +92,7 @@ async function processFiles(list: FileList | File[] | null | undefined) {
       job.progress = 1
     }
   }
-  await Promise.all([worker(), worker()])
+  await worker()
   results.forEach((r, i) => r && handle(jobs.value[i], r))
   if (errors.size) error.value = [...errors].join(' ')
 
@@ -152,7 +155,7 @@ function onDrop(e: DragEvent) {
         <span class="muted-text money">
           <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item` : 'Tidak terbaca' }}</template>
           <template v-else-if="j.status === 'error'">Gagal</template>
-          <template v-else-if="j.status === 'reading'">{{ Math.round(j.progress * 100) }}%</template>
+          <template v-else-if="j.status === 'reading'">{{ j.wait ? `Menunggu kuota ${j.wait}s…` : 'Membaca…' }}</template>
           <template v-else>Menunggu</template>
         </span>
         <p v-if="j.status === 'done' && j.count && j.gap" class="text-tiny neg" style="flex-basis: 100%; margin: 0">

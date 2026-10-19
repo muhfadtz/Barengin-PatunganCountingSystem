@@ -39,7 +39,7 @@ npm run dev              # restart setelah mengubah .env
 
 - **Model:** default `gemini-3.6-flash`; jika tidak ditemukan (404) otomatis jatuh ke `gemini-2.5-flash`. Paksa satu model lewat `VITE_GEMINI_MODEL`.
 - **Cek total:** kalau total di struk berbeda dari jumlah item + pajak, baris struk diberi peringatan. Selalu periksa hasilnya sebelum membagi.
-- **Kuota:** free tier punya batas permintaan per menit/hari; saat terlampaui app menampilkan pesan agar mencoba lagi.
+- **Kuota:** struk diproses satu per satu. Saat kena batas per menit (429) app menunggu sesuai saran Google lalu mencoba lagi otomatis; kuota harian habis → berhenti dengan pesan jelas. Kalau tetap sering kena batas, pakai model lain lewat `VITE_GEMINI_MODEL` (mis. varian flash-lite) atau key dengan kuota lebih besar.
 - **Privasi:** gambar struk dikirim ke Google untuk diproses.
 
 ## Struktur

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { allocate, balances, computeShares, settle } from './split'
 import type { Expense, Member } from './split'
-import { normalizeReceipt, totalGap } from './gemini'
+import { normalizeReceipt, parseRetryDelay, totalGap } from './gemini'
 import { buildWhatsAppMessage } from './whatsapp'
 import { rupiah, toInt } from './format'
 
@@ -101,6 +101,18 @@ describe('gemini: normalizeReceipt & totalGap', () => {
     expect(totalGap({ items, adjustment: 6600, total: 66600 })).toBe(0)
     expect(totalGap({ items, adjustment: 0, total: 66600 })).toBe(6600)
     expect(totalGap({ items, adjustment: 0, total: null })).toBeNull()
+  })
+})
+
+describe('parseRetryDelay (429 Gemini)', () => {
+  it('membaca retryDelay dari RetryInfo', () => {
+    const body = { error: { code: 429, details: [{ '@type': 'x/help' }, { '@type': 'x/RetryInfo', retryDelay: '23.4s' }] } }
+    expect(parseRetryDelay(body)).toBe(24)
+  })
+  it('null bila tidak ada / format lain', () => {
+    expect(parseRetryDelay(null)).toBeNull()
+    expect(parseRetryDelay({ error: { details: [{ retryDelay: '2m' }] } })).toBeNull()
+    expect(parseRetryDelay({ error: {} })).toBeNull()
   })
 })
 

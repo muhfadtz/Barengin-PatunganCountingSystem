@@ -113,26 +113,53 @@ async function toBase64Jpeg(file: File): Promise<string> {
   return url.slice(url.indexOf(',') + 1)
 }
 
-/** Satu panggilan ke satu model. Mengembalikan `null` bila model tidak ditemukan (404) agar bisa dicoba model lain. */
-async function callModel(model: string, data: string): Promise<ParsedReceipt | null> {
+/** Detik tunggu yang disarankan Google pada error 429 (RetryInfo.retryDelay, mis. "23s"); null jika tidak ada. */
+export function parseRetryDelay(body: unknown): number | null {
+  const details = (body as { error?: { details?: { retryDelay?: unknown }[] } } | null)?.error?.details
+  for (const d of Array.isArray(details) ? details : []) {
+    const m = typeof d?.retryDelay === 'string' ? d.retryDelay.match(/^(\d+(?:\.\d+)?)s$/) : null
+    if (m) return Math.ceil(Number(m[1]))
+  }
+  return null
+}
+
+const MAX_RETRIES = 3
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Satu panggilan ke satu model. Mengembalikan `null` bila model tidak ditemukan (404) agar bisa dicoba model lain.
+ * Saat kena batas per menit (429) menunggu sesuai saran Google lalu mencoba lagi; `onWait` memberi tahu UI.
+ */
+async function callModel(model: string, data: string, onWait?: (sec: number) => void): Promise<ParsedReceipt | null> {
   let res: Response
-  try {
-    res = await fetch(`${BASE}/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: 'image/jpeg', data } }] }],
-        generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
-      }),
-    })
-  } catch {
-    throw new GeminiError('Tidak bisa terhubung ke server. Periksa koneksi internet.')
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(`${BASE}/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: 'image/jpeg', data } }] }],
+          generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
+        }),
+      })
+    } catch {
+      throw new GeminiError('Tidak bisa terhubung ke server. Periksa koneksi internet.')
+    }
+    if (res.status !== 429) break
+
+    const body = await res.json().catch(() => null)
+    if (/per ?day/i.test(JSON.stringify(body ?? '')))
+      throw new GeminiError('Kuota harian Gemini habis. Coba lagi besok atau pakai API key lain.', true)
+    if (attempt >= MAX_RETRIES)
+      throw new GeminiError('Batas permintaan per menit Gemini terlampaui. Tunggu sebentar lalu upload ulang struk yang gagal.')
+    const sec = Math.min(parseRetryDelay(body) ?? 5 * 2 ** attempt, 60)
+    onWait?.(sec)
+    await sleep(sec * 1000)
   }
 
   if (res.status === 404) return null
   if (res.status === 400 || res.status === 401 || res.status === 403)
     throw new GeminiError('API key Gemini ditolak atau belum diisi. Periksa GEMINI_API_KEY di .env lalu restart server.', true)
-  if (res.status === 429) throw new GeminiError('Kuota Gemini habis atau terlalu cepat. Coba lagi sebentar.')
   if (!res.ok) throw new GeminiError(`Gemini error (${res.status})`)
 
   let text: unknown
@@ -149,12 +176,12 @@ async function callModel(model: string, data: string): Promise<ParsedReceipt | n
   }
 }
 
-export async function scanReceipt(file: File): Promise<ParsedReceipt> {
+export async function scanReceipt(file: File, onWait?: (sec: number) => void): Promise<ParsedReceipt> {
   const data = await toBase64Jpeg(file).catch(() => {
     throw new GeminiError('Gambar tidak bisa dibuka')
   })
   for (let i = firstTry; i < MODELS.length; i++) {
-    const out = await callModel(MODELS[i], data)
+    const out = await callModel(MODELS[i], data, onWait)
     if (out) {
       firstTry = i
       return out
