@@ -11,6 +11,8 @@ import ResultPanel from './components/ResultPanel.vue'
 import SessionStart from './components/SessionStart.vue'
 import { useStore } from './lib/store'
 import type { Expense, Member } from './lib/split'
+import { OCR_LANG_LABEL } from './lib/localocr'
+import type { OcrLang } from './lib/localocr'
 import { uid } from './lib/format'
 import { sampleData } from './lib/sample'
 
@@ -37,8 +39,8 @@ const dateFmt = (t: number) =>
   new Date(t).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
 
 /* ── Sesi ─────────────────────────────────────────────── */
-function onStart(name: string, list: Member[]) {
-  startSession(name, list)
+function onStart(name: string, list: Member[], lang: OcrLang) {
+  startSession(name, list, [], lang)
 }
 function onSample() {
   const d = sampleData()
@@ -142,8 +144,11 @@ function setAllPayer(id: string) {
 
             <!-- Upload struk (bulk) -->
             <section class="section" aria-labelledby="upload-title">
-              <h2 id="upload-title" class="h3">Struk</h2>
-              <ReceiptBulkUpload :members="members" :compact="expenses.length > 0" :source-offset="receiptCount" @import="onImport" />
+              <div class="row" style="justify-content: space-between">
+                <h2 id="upload-title" class="h3">Struk</h2>
+                <span class="badge" title="Dipilih saat sesi dimulai">OCR: {{ OCR_LANG_LABEL[active.ocrLang] }}</span>
+              </div>
+              <ReceiptBulkUpload :members="members" :lang="active.ocrLang" :compact="expenses.length > 0" :source-offset="receiptCount" @import="onImport" />
             </section>
 
             <!-- Anggota (ringkas) & daftar item -->

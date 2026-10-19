@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { CircleAlert, CircleCheck, ImagePlus, LoaderCircle, ScanLine } from 'lucide-vue-next'
 import { createLocalOcr, OcrError } from '../lib/localocr'
+import type { OcrLang } from '../lib/localocr'
 import { groundInText, LlmError, parseWithLlm } from '../lib/llmParser'
 import { mergeReceipts } from '../lib/merge'
 import { parseReceipt } from '../lib/receiptParser'
@@ -9,7 +10,7 @@ import type { ParsedReceipt } from '../lib/receiptParser'
 import { uid } from '../lib/format'
 import type { Expense, Member } from '../lib/split'
 
-const props = defineProps<{ members: Member[]; compact: boolean; sourceOffset: number }>()
+const props = defineProps<{ members: Member[]; compact: boolean; sourceOffset: number; lang: OcrLang }>()
 const emit = defineEmits<{ (e: 'import', list: Expense[], receipts: number): void }>()
 
 interface Job {
@@ -74,7 +75,7 @@ async function processFiles(list: FileList | File[] | null | undefined) {
   let stop = false
   let llmDown = false
   const errors = new Set<string>()
-  const ocr = createLocalOcr()
+  const ocr = createLocalOcr(props.lang)
   async function worker() {
     while (!stop && next < files.length) {
       const i = next++

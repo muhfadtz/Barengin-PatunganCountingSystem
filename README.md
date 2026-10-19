@@ -28,7 +28,7 @@ Butuh Node.js >= 20.19.
 
 Dua tahap:
 
-1. **OCR di browser** dengan [Tesseract.js](https://github.com/naptha/tesseract.js) (bahasa Indonesia + Inggris `ind+eng`, mode satu blok teks dengan jarak kolom dipertahankan). Tanpa server dan tanpa token. Data bahasa (beberapa MB, dua bahasa) diunduh sekali saat pertama kali dipakai, jadi butuh internet.
+1. **OCR di browser** dengan [Tesseract.js](https://github.com/naptha/tesseract.js) (bahasa dipilih saat memulai sesi: Indonesia `ind`, Inggris `eng`, atau keduanya `ind+eng` sebagai default; mode satu blok teks dengan jarak kolom dipertahankan). Tanpa server dan tanpa token. Data bahasa (beberapa MB, dua bahasa) diunduh sekali saat pertama kali dipakai, jadi butuh internet.
 2. **Parsing** teks OCR menjadi item, pajak, dan total oleh LLM kecil + parser aturan (di bawah).
 
 Hanya LLM parser yang butuh token:
@@ -67,6 +67,7 @@ src/
 │   ├── ExpenseForm.vue          form tambah manual (tersembunyi default)
 │   ├── SplitSelector.vue        equal / exclusive / custom
 │   ├── ResultPanel.vue          saldo, transfer, salin WhatsApp
+│   ├── SegmentedControl.vue     pilihan 2–3 opsi (bahasa OCR)
 │   ├── BaseSelect.vue           dropdown custom (2 opsi → tombol segmented)
 │   └── MemberAvatar.vue
 └── lib/

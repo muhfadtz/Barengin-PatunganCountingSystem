@@ -3,6 +3,16 @@
  * kali dipakai, jadi butuh internet. Satu worker dipakai ulang untuk beberapa foto.
  */
 
+/** Bahasa OCR: Indonesia, Inggris, atau keduanya (nilai langsung dipakai Tesseract). */
+export type OcrLang = 'ind' | 'eng' | 'ind+eng'
+
+export const OCR_LANGS: { value: OcrLang; label: string }[] = [
+  { value: 'ind', label: 'Indonesia' },
+  { value: 'eng', label: 'Inggris' },
+  { value: 'ind+eng', label: 'Keduanya' },
+]
+export const OCR_LANG_LABEL = Object.fromEntries(OCR_LANGS.map((l) => [l.value, l.label])) as Record<OcrLang, string>
+
 export class OcrError extends Error {
   constructor(
     message: string,
@@ -18,13 +28,13 @@ type Worker = {
   terminate(): Promise<unknown>
 }
 
-export function createLocalOcr() {
+export function createLocalOcr(lang: OcrLang = 'ind+eng') {
   let worker: Promise<Worker> | null = null
   let onProgress: ((p: number) => void) | undefined
 
   function start(): Promise<Worker> {
     return import('tesseract.js').then(async (t) => {
-      const w = (await t.createWorker('ind+eng', 1, {
+      const w = (await t.createWorker(lang, 1, {
         logger: (m: { status: string; progress: number }) => {
           if (m.status === 'recognizing text') onProgress?.(m.progress)
         },
