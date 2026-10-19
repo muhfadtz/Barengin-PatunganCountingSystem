@@ -1,106 +1,44 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import type { Expense, Member } from './split'
 import { uid } from './format'
 
-export const STORAGE_KEY = 'barengin:v2'
-const LEGACY_KEY = 'patungan:v1'
-
-/** Satu sesi patungan. Sesi aktif punya `closedAt === null`; yang sudah ditutup masuk riwayat. */
+/**
+ * Satu sesi patungan, hanya di memori. Tidak ada localStorage / sessionStorage / cookie:
+ * data hilang saat halaman di-refresh atau ditutup.
+ */
 export interface Session {
   id: string
   name: string
   createdAt: number
-  closedAt: number | null
   members: Member[]
   expenses: Expense[]
 }
 
-function isSession(s: unknown): s is Session {
-  const x = s as Session
-  return !!x && typeof x.id === 'string' && Array.isArray(x.members) && Array.isArray(x.expenses)
+// Hapus data yang pernah ditulis versi sebelumnya (sesi, riwayat, API key).
+try {
+  for (const k of ['barengin:v2', 'patungan:v1', 'barengin:gemini-key']) localStorage.removeItem(k)
+} catch {
+  /* storage diblokir: tidak ada yang perlu dibersihkan */
 }
 
-function load(): Session[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const data = JSON.parse(raw)
-      const list: Session[] = Array.isArray(data?.sessions) ? data.sessions.filter(isSession) : []
-      // Jaga invarian: hanya boleh ada satu sesi aktif.
-      let seenActive = false
-      for (const s of list) {
-        if (s.closedAt === null) {
-          if (seenActive) s.closedAt = s.createdAt
-          seenActive = true
-        }
-      }
-      return list
-    }
-    // Migrasi data versi lama (satu daftar anggota + pengeluaran) menjadi satu sesi aktif.
-    const legacy = localStorage.getItem(LEGACY_KEY)
-    if (legacy) {
-      const d = JSON.parse(legacy)
-      if (Array.isArray(d?.members) && d.members.length >= 2) {
-        return [
-          {
-            id: uid(),
-            name: 'Sesi sebelumnya',
-            createdAt: Date.now(),
-            closedAt: null,
-            members: d.members,
-            expenses: Array.isArray(d.expenses) ? d.expenses : [],
-          },
-        ]
-      }
-    }
-  } catch {
-    /* data rusak: mulai kosong */
-  }
-  return []
-}
-
-const sessions = ref<Session[]>(load())
-const active = computed(() => sessions.value.find((s) => s.closedAt === null) ?? null)
-const history = computed(() =>
-  sessions.value.filter((s) => s.closedAt !== null).sort((a, b) => b.closedAt! - a.closedAt!),
-)
-let started = false
+const session = ref<Session | null>(null)
+const active = computed(() => session.value)
 
 function startSession(name: string, members: Member[], expenses: Expense[] = []): Session {
   const now = new Date()
-  const session: Session = {
+  session.value = {
     id: uid(),
     name: name.trim() || `Sesi ${now.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}`,
     createdAt: now.getTime(),
-    closedAt: null,
     members: members.map((m) => ({ ...m })),
     expenses,
   }
-  sessions.value.push(session)
-  return session
+  return session.value
 }
-function closeSession() {
-  if (active.value) active.value.closedAt = Date.now()
-}
-function deleteSession(id: string) {
-  sessions.value = sessions.value.filter((s) => s.id !== id)
+function endSession() {
+  session.value = null
 }
 
-/** State bersama + persistence otomatis ke localStorage. */
 export function useStore() {
-  if (!started) {
-    started = true
-    watch(
-      sessions,
-      () => {
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessions: sessions.value }))
-        } catch {
-          /* storage penuh / diblokir: abaikan */
-        }
-      },
-      { deep: true },
-    )
-  }
-  return { sessions, active, history, startSession, closeSession, deleteSession }
+  return { active, startSession, endSession }
 }

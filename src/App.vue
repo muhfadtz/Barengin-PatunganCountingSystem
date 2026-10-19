@@ -1,31 +1,25 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
-import { Archive, ChevronDown, ChevronRight, History, Plus, ReceiptText, Trash2, UserPlus, X } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { ChevronDown, Plus, RotateCcw, UserPlus, X } from 'lucide-vue-next'
 import BaseSelect from './components/BaseSelect.vue'
 import MemberAvatar from './components/MemberAvatar.vue'
 import BarenginLogo from './components/BarenginLogo.vue'
 import ExpenseForm from './components/ExpenseForm.vue'
 import ExpenseList from './components/ExpenseList.vue'
+import ReceiptBulkUpload from './components/ReceiptBulkUpload.vue'
 import ResultPanel from './components/ResultPanel.vue'
 import SessionStart from './components/SessionStart.vue'
 import { useStore } from './lib/store'
-import { totalSpent } from './lib/split'
 import type { Expense, Member } from './lib/split'
-import { rupiah, uid } from './lib/format'
+import { uid } from './lib/format'
 import { sampleData } from './lib/sample'
 
-const { active, history, startSession, closeSession, deleteSession } = useStore()
+const { active, startSession, endSession } = useStore()
 
 /* ── UI state ─────────────────────────────────────────── */
-const view = ref<'session' | 'history'>('session')
-const tabs = [
-  { key: 'session', label: 'Sesi', icon: ReceiptText },
-  { key: 'history', label: 'Riwayat', icon: History },
-] as const
 const showExpenseForm = ref(false) // default tersembunyi supaya fokus ke daftar item
 const showMembers = ref(false) // panel anggota: ringkas (stack avatar) sampai dibuka
 const memberInput = ref<HTMLInputElement>()
-const openHistoryId = ref('')
 const newName = ref('')
 const toast = ref('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -37,7 +31,7 @@ function notify(msg: string) {
 
 const members = computed(() => active.value?.members ?? [])
 const expenses = computed(() => active.value?.expenses ?? [])
-const openHistory = computed(() => history.value.find((s) => s.id === openHistoryId.value) ?? null)
+const receiptCount = computed(() => new Set(expenses.value.map((e) => e.source).filter((x) => x?.startsWith('Struk'))).size)
 
 const dateFmt = (t: number) =>
   new Date(t).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -45,35 +39,25 @@ const dateFmt = (t: number) =>
 /* ── Sesi ─────────────────────────────────────────────── */
 function onStart(name: string, list: Member[]) {
   startSession(name, list)
-  view.value = 'session'
 }
 function onSample() {
   const d = sampleData()
   startSession('Contoh patungan', d.members, d.expenses)
-  view.value = 'session'
 }
-function onClose() {
+function onReset() {
   const s = active.value
   if (!s) return
-  if (!s.expenses.length) {
-    if (!confirm('Sesi masih kosong, jadi akan dihapus (tidak masuk riwayat). Lanjutkan?')) return
-    deleteSession(s.id)
-    notify('Sesi kosong dihapus')
-    return
-  }
-  if (!confirm(`Tutup sesi "${s.name}"? Sesi akan dipindah ke riwayat dan tidak bisa diubah lagi.`)) return
-  closeSession()
+  if (s.expenses.length && !confirm(`Mulai sesi baru? Semua data "${s.name}" akan dihapus dan tidak bisa dikembalikan.`)) return
+  endSession()
   showExpenseForm.value = false
   showMembers.value = false
-  view.value = 'history'
-  openHistoryId.value = s.id
-  notify('Sesi ditutup dan disimpan ke riwayat')
 }
-function onDeleteHistory(id: string, name: string) {
-  if (!confirm(`Hapus "${name}" dari riwayat?`)) return
-  deleteSession(id)
-  if (openHistoryId.value === id) openHistoryId.value = ''
+// Data hanya di memori: ingatkan sebelum halaman ditutup / di-refresh.
+function warnUnload(e: BeforeUnloadEvent) {
+  if (expenses.value.length) e.preventDefault()
 }
+onMounted(() => window.addEventListener('beforeunload', warnUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', warnUnload))
 
 /* ── Anggota ──────────────────────────────────────────── */
 function isUsed(id: string) {
@@ -101,6 +85,10 @@ function removeMember(id: string) {
 }
 
 /* ── Item ─────────────────────────────────────────────── */
+function onImport(list: Expense[], receipts: number) {
+  active.value?.expenses.push(...list)
+  notify(`${list.length} item dari ${receipts} struk ditambahkan`)
+}
 function addExpense(e: Expense) {
   active.value?.expenses.push(e)
   notify('Pengeluaran ditambahkan')
@@ -125,19 +113,11 @@ function setAllPayer(id: string) {
     <header class="app-header">
       <div class="container-app header-inner">
         <BarenginLogo />
-        <nav class="top-nav row" style="gap: 4px; flex-wrap: nowrap" aria-label="Navigasi utama">
-          <button v-for="t in tabs" :key="t.key" type="button" class="btn btn-sm" :class="view === t.key ? 'btn-secondary' : 'btn-ghost'" :aria-current="view === t.key ? 'page' : undefined" @click="view = t.key">
-            <component :is="t.icon" :size="18" aria-hidden="true" />
-            {{ t.label }}
-            <span v-if="t.key === 'history' && history.length" class="badge">{{ history.length }}</span>
-          </button>
-        </nav>
       </div>
     </header>
 
     <main class="container-app page">
       <!-- ═════════ Sesi ═════════ -->
-      <template v-if="view === 'session'">
         <SessionStart v-if="!active" @start="onStart" @sample="onSample" @notify="notify" />
 
         <div v-else class="layout">
@@ -150,14 +130,20 @@ function setAllPayer(id: string) {
             <section class="section">
               <div class="section-head">
                 <div style="min-width: 0">
-                  <p class="text-small muted-text">Sesi aktif · mulai {{ dateFmt(active.createdAt) }}</p>
+                  <p class="text-small muted-text">Sesi berjalan · mulai {{ dateFmt(active.createdAt) }} · data tidak disimpan</p>
                   <h1 class="h2" style="word-break: break-word">{{ active.name }}</h1>
                 </div>
-                <button type="button" class="btn btn-secondary btn-sm" @click="onClose">
-                  <Archive :size="18" aria-hidden="true" />
-                  Tutup sesi
+                <button type="button" class="btn btn-secondary btn-sm" @click="onReset">
+                  <RotateCcw :size="18" aria-hidden="true" />
+                  Sesi baru
                 </button>
               </div>
+            </section>
+
+            <!-- Upload struk (bulk) -->
+            <section class="section" aria-labelledby="upload-title">
+              <h2 id="upload-title" class="h3">Struk</h2>
+              <ReceiptBulkUpload :members="members" :compact="expenses.length > 0" :source-offset="receiptCount" @import="onImport" />
             </section>
 
             <!-- Anggota (ringkas) & daftar item -->
@@ -223,7 +209,7 @@ function setAllPayer(id: string) {
 
               <ExpenseForm v-if="showExpenseForm" :members="members" @add="addExpense" @close="showExpenseForm = false" />
 
-              <div v-if="!expenses.length" class="empty">Belum ada item. Tekan “Tambah item” untuk mulai mencatat.</div>
+              <div v-if="!expenses.length" class="empty">Belum ada item. Upload struk di atas, atau tekan “Tambah item”.</div>
               <template v-else>
                 <div class="row text-small">
                   <span class="muted-text">Semua dibayar oleh</span>
@@ -234,60 +220,7 @@ function setAllPayer(id: string) {
             </section>
           </div>
         </div>
-      </template>
-
-      <!-- ═════════ Riwayat ═════════ -->
-      <template v-else>
-        <section class="section" style="max-width: 720px; margin-inline: auto" aria-labelledby="hist-title">
-          <h1 id="hist-title" class="h2">Riwayat sesi</h1>
-          <div v-if="!history.length" class="empty">Belum ada sesi yang ditutup.</div>
-
-          <ul v-else class="stack" style="gap: 12px; list-style: none; padding: 0; margin: 0">
-            <li v-for="s in history" :key="s.id" class="card">
-              <div class="list-row">
-                <button
-                  type="button"
-                  class="link-btn"
-                  style="text-decoration: none; text-align: left; flex: 1; min-width: 0"
-                  :aria-expanded="openHistoryId === s.id"
-                  @click="openHistoryId = openHistoryId === s.id ? '' : s.id"
-                >
-                  <span class="row" style="flex-wrap: nowrap; gap: 8px">
-                    <ChevronRight :size="20" class="chev" :class="{ 'chev-open': openHistoryId === s.id }" aria-hidden="true" />
-                    <span style="min-width: 0">
-                      <span class="h3" style="display: block; word-break: break-word">{{ s.name }}</span>
-                      <span class="text-small muted-text" style="display: block; font-weight: 400">
-                        {{ dateFmt(s.closedAt!) }} · {{ s.members.map((m) => m.name).join(', ') }} · {{ s.expenses.length }} item
-                      </span>
-                    </span>
-                  </span>
-                </button>
-                <strong class="money">{{ rupiah(totalSpent(s.expenses)) }}</strong>
-                <button type="button" class="icon-btn" :aria-label="`Hapus ${s.name}`" title="Hapus dari riwayat" @click="onDeleteHistory(s.id, s.name)">
-                  <Trash2 :size="20" aria-hidden="true" />
-                </button>
-              </div>
-
-              <div v-if="openHistory && openHistory.id === s.id" class="stack" style="gap: 16px; margin-top: 16px">
-                <ResultPanel title="Hasil akhir" :members="s.members" :expenses="s.expenses" :session-name="s.name" @notify="notify" />
-                <ExpenseList :members="s.members" :expenses="s.expenses" readonly />
-              </div>
-            </li>
-          </ul>
-        </section>
-      </template>
     </main>
-
-    <!-- Mobile & tablet: bottom navbar -->
-    <nav class="bottom-nav" aria-label="Navigasi utama">
-      <button v-for="t in tabs" :key="t.key" type="button" class="bottom-nav-item" :class="{ 'bottom-nav-active': view === t.key }" :aria-current="view === t.key ? 'page' : undefined" @click="view = t.key">
-        <span class="bottom-nav-icon">
-          <component :is="t.icon" :size="22" aria-hidden="true" />
-          <span v-if="t.key === 'history' && history.length" class="bottom-nav-badge">{{ history.length }}</span>
-        </span>
-        {{ t.label }}
-      </button>
-    </nav>
 
     <div v-if="toast" class="toast" role="status">{{ toast }}</div>
   </div>
