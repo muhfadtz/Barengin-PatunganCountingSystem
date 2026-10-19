@@ -159,7 +159,7 @@ async function callModel(model: string, data: string, onWait?: (sec: number) => 
 
   if (res.status === 404) return null
   if (res.status === 400 || res.status === 401 || res.status === 403)
-    throw new GeminiError('API key Gemini ditolak atau belum diisi. Periksa GEMINI_API_KEY di .env lalu restart server.', true)
+    throw new GeminiError('API key Gemini ditolak atau belum diisi. Periksa GEMINI_API_KEY (di .env, atau Environment Variables di Vercel).', true)
   if (!res.ok) throw new GeminiError(`Gemini error (${res.status})`)
 
   let text: unknown

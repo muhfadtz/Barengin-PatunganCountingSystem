@@ -35,12 +35,20 @@ npm run dev              # restart setelah mengubah .env
 
 `GEMINI_API_KEY` **tidak** berawalan `VITE_`, jadi hanya dibaca server Vite dan tidak masuk ke JavaScript browser. Browser memanggil `/api/gemini/...`; proxy Vite menambahkan key.
 
-> Proxy ini aktif di `npm run dev` dan `npm run preview`. Untuk deploy publik perlu proxy/backend sendiri yang meneruskan `/api/gemini` ke Google dengan key di sisi server.
+> Di dev, proxy ini ada di `vite.config.ts` (aktif di `npm run dev` / `npm run preview`). Di produksi (Vercel) perannya dipegang fungsi serverless `api/gemini/[...path].ts`, lihat bagian Deploy.
 
 - **Model:** default `gemini-3.6-flash`; jika tidak ditemukan (404) otomatis jatuh ke `gemini-2.5-flash`. Paksa satu model lewat `VITE_GEMINI_MODEL`.
 - **Cek total:** kalau total di struk berbeda dari jumlah item + pajak, baris struk diberi peringatan. Selalu periksa hasilnya sebelum membagi.
 - **Kuota:** struk diproses satu per satu. Saat kena batas per menit (429) app menunggu sesuai saran Google lalu mencoba lagi otomatis; kuota harian habis → berhenti dengan pesan jelas. Kalau tetap sering kena batas, pakai model lain lewat `VITE_GEMINI_MODEL` (mis. varian flash-lite) atau key dengan kuota lebih besar.
 - **Privasi:** gambar struk dikirim ke Google untuk diproses.
+
+## Deploy ke Vercel
+
+1. Import repo di Vercel (framework Vite terdeteksi otomatis; `vercel.json` hanya mengatur batas waktu fungsi).
+2. Di *Settings → Environment Variables* tambahkan `GEMINI_API_KEY` (Production dan Preview), lalu **redeploy**. Tanpa ini, scan struk menampilkan pesan bahwa key belum diatur.
+3. Fungsi `api/gemini/[...path].ts` menyimpan key di server dan hanya meneruskan `POST v1beta/models/<model>:generateContent` dari origin yang sama. Key tidak pernah masuk ke bundle browser.
+
+> **Perhatian:** siapa pun yang membuka situs bisa memakai kuota Gemini milikmu lewat proxy ini. Untuk membatasinya aktifkan *Deployment Protection* (Vercel Authentication / password) di pengaturan proyek, atau tambahkan autentikasi sendiri sebelum dibagikan.
 
 ## Struktur
 

@@ -24,6 +24,6 @@ export default defineConfig(({ mode }) => {
     plugins: [vue(), tailwindcss()],
     server: { proxy },
     preview: { proxy },
-    test: { environment: 'node', include: ['src/**/*.test.ts'] },
+    test: { environment: 'node', include: ['src/**/*.test.ts', 'api/**/*.test.ts'] },
   }
 })
