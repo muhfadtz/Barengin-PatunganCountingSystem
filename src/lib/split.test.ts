@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { allocate, balances, computeShares, settle } from './split'
 import type { Expense, Member } from './split'
-import { normalizeReceipt, parseRetryDelay, totalGap } from './gemini'
+import { normalizeReceipt, parseRetryDelay, pickModels, totalGap } from './gemini'
 import { buildWhatsAppMessage } from './whatsapp'
 import { rupiah, toInt } from './format'
 
@@ -113,6 +113,35 @@ describe('parseRetryDelay (429 Gemini)', () => {
     expect(parseRetryDelay(null)).toBeNull()
     expect(parseRetryDelay({ error: { details: [{ retryDelay: '2m' }] } })).toBeNull()
     expect(parseRetryDelay({ error: {} })).toBeNull()
+  })
+})
+
+describe('pickModels (pilih model dari daftar Google)', () => {
+  const m = (name: string, methods = ['generateContent']) => ({ name: `models/${name}`, supportedGenerationMethods: methods })
+  it('stabil lebih dulu, versi tertinggi dulu, preview di belakang', () => {
+    const out = pickModels([
+      m('gemini-2.0-flash'),
+      m('gemini-2.5-flash'),
+      m('gemini-3.1-flash-preview'),
+      m('gemini-2.5-flash-001'),
+    ])
+    expect(out).toEqual(['gemini-2.5-flash', 'gemini-2.5-flash-001', 'gemini-2.0-flash', 'gemini-3.1-flash-preview'])
+  })
+  it('membuang lite, gambar, audio, embedding, dan yang tidak mendukung generateContent', () => {
+    const out = pickModels([
+      m('gemini-2.5-flash-lite'),
+      m('gemini-2.5-flash-image'),
+      m('gemini-2.5-flash-preview-tts'),
+      m('gemini-embedding-001', ['embedContent']),
+      m('gemini-2.5-pro'),
+      m('gemini-2.5-flash', ['countTokens']),
+      m('gemini-2.0-flash'),
+    ])
+    expect(out).toEqual(['gemini-2.0-flash'])
+  })
+  it('kosong bila tidak ada kandidat', () => {
+    expect(pickModels([])).toEqual([])
+    expect(pickModels([{ supportedGenerationMethods: ['generateContent'] }])).toEqual([])
   })
 })
 

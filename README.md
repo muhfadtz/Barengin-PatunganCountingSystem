@@ -37,7 +37,7 @@ npm run dev              # restart setelah mengubah .env
 
 > Di dev, proxy ini ada di `vite.config.ts` (aktif di `npm run dev` / `npm run preview`). Di produksi (Vercel) perannya dipegang fungsi serverless `api/gemini/[...path].ts`, lihat bagian Deploy.
 
-- **Model:** default `gemini-3.6-flash`; jika tidak ditemukan (404) otomatis jatuh ke `gemini-2.5-flash`. Paksa satu model lewat `VITE_GEMINI_MODEL`.
+- **Model:** dipilih otomatis. App menanyakan ke Google model apa saja yang tersedia untuk key-mu (`GET /v1beta/models`), lalu memakai model Flash stabil terbaru yang bisa membaca gambar (fallback ke berikutnya bila 404). Paksa satu model lewat `VITE_GEMINI_MODEL` hanya jika perlu; nama yang salah membuat scan gagal.
 - **Cek total:** kalau total di struk berbeda dari jumlah item + pajak, baris struk diberi peringatan. Selalu periksa hasilnya sebelum membagi.
 - **Kuota:** struk diproses satu per satu. Saat kena batas per menit (429) app menunggu sesuai saran Google lalu mencoba lagi otomatis; kuota harian habis → berhenti dengan pesan jelas. Kalau tetap sering kena batas, pakai model lain lewat `VITE_GEMINI_MODEL` (mis. varian flash-lite) atau key dengan kuota lebih besar.
 - **Privasi:** gambar struk dikirim ke Google untuk diproses.
@@ -46,7 +46,7 @@ npm run dev              # restart setelah mengubah .env
 
 1. Import repo di Vercel (framework Vite terdeteksi otomatis; `vercel.json` hanya mengatur batas waktu fungsi).
 2. Di *Settings → Environment Variables* tambahkan `GEMINI_API_KEY` (Production dan Preview), lalu **redeploy**. Tanpa ini, scan struk menampilkan pesan bahwa key belum diatur.
-3. Fungsi `api/gemini/[...path].ts` menyimpan key di server dan hanya meneruskan `POST v1beta/models/<model>:generateContent` dari origin yang sama. Key tidak pernah masuk ke bundle browser.
+3. Fungsi `api/gemini/[...path].ts` menyimpan key di server dan hanya meneruskan `POST v1beta/models/<model>:generateContent` dan `GET v1beta/models` (daftar model) dari origin yang sama. Key tidak pernah masuk ke bundle browser.
 
 > **Perhatian:** siapa pun yang membuka situs bisa memakai kuota Gemini milikmu lewat proxy ini. Untuk membatasinya aktifkan *Deployment Protection* (Vercel Authentication / password) di pengaturan proyek, atau tambahkan autentikasi sendiri sebelum dibagikan.
 

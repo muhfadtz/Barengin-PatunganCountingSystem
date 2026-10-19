@@ -2,8 +2,9 @@
  * Proxy Gemini untuk produksi (Vercel). Di dev, peran yang sama dipegang proxy di vite.config.ts.
  * API key hanya ada di Environment Variable server `GEMINI_API_KEY`, tidak pernah dikirim ke browser.
  *
- * Dibatasi seketat mungkin supaya key tidak bisa dipakai untuk hal lain:
- * hanya POST, hanya `v1beta/models/<model>:generateContent`, dan hanya dari origin yang sama.
+ * Dibatasi seketat mungkin supaya key tidak bisa dipakai untuk hal lain, hanya dari origin yang sama:
+ * - POST `v1beta/models/<model>:generateContent` (membaca struk)
+ * - GET  `v1beta/models` (daftar model yang tersedia untuk key ini; query dipatok, tidak diteruskan dari klien)
  */
 
 declare const process: { env: Record<string, string | undefined> }
@@ -20,7 +21,8 @@ interface Res {
   send(body: string): void
 }
 
-const ALLOWED_PATH = /^v1beta\/models\/[A-Za-z0-9._-]+:generateContent$/
+const GENERATE_PATH = /^v1beta\/models\/[A-Za-z0-9._-]+:generateContent$/
+const LIST_PATH = 'v1beta/models'
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
 
@@ -29,11 +31,11 @@ function fail(res: Res, status: number, message: string) {
 }
 
 export default async function handler(req: Req, res: Res) {
-  if (req.method !== 'POST') return fail(res, 405, 'Method not allowed')
-
   const segments = req.query.path
   const path = Array.isArray(segments) ? segments.join('/') : (segments ?? '')
-  if (!ALLOWED_PATH.test(path)) return fail(res, 404, 'Not found')
+  const isGenerate = req.method === 'POST' && GENERATE_PATH.test(path)
+  const isList = req.method === 'GET' && path === LIST_PATH
+  if (!isGenerate && !isList) return fail(res, req.method === 'POST' || req.method === 'GET' ? 404 : 405, 'Not found')
 
   // Browser selalu menyertakan Origin pada POST; tolak bila bukan dari situs ini.
   const origin = first(req.headers.origin)
@@ -54,11 +56,13 @@ export default async function handler(req: Req, res: Res) {
   const base = (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '')
   let upstream: Response
   try {
-    upstream = await fetch(`${base}/${path}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      body: typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {}),
-    })
+    upstream = isList
+      ? await fetch(`${base}/${path}?pageSize=200`, { headers: { 'x-goog-api-key': key } })
+      : await fetch(`${base}/${path}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+          body: typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {}),
+        })
   } catch {
     return fail(res, 502, 'Tidak bisa menghubungi Gemini')
   }

@@ -61,12 +61,24 @@ describe('api/gemini proxy', () => {
   })
 
   it('menolak selain POST, path di luar generateContent, dan origin lain', async () => {
-    expect((await run({ method: 'GET' })).status).toBe(405)
+    expect((await run({ method: 'PUT' })).status).toBe(405)
+    expect((await run({ method: 'GET' })).status).toBe(404) // GET hanya untuk daftar model
+    expect((await run({ method: 'POST', path: ['v1beta', 'models'] })).status).toBe(404)
     expect((await run({ path: ['v1beta', 'models'] })).status).toBe(404)
     expect((await run({ path: ['v1beta', 'files', 'x'] })).status).toBe(404)
     expect((await run({ path: ['..', 'admin:generateContent'] })).status).toBe(404)
     expect((await run({ origin: 'https://evil.example' })).status).toBe(403)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('GET v1beta/models: meneruskan daftar model dengan query dipatok dan key di header', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{"models":[]}', { status: 200 }))
+    const out = await run({ method: 'GET', path: ['v1beta', 'models'], origin: 'https://barengin.vercel.app' })
+    expect(out.status).toBe(200)
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://upstream.test/v1beta/models?pageSize=200')
+    expect(init.headers['x-goog-api-key']).toBe('AIzaSECRET')
+    expect(init.method).toBeUndefined() // GET
   })
 
   it('403 dengan pesan jelas bila key server belum diatur', async () => {

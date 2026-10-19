@@ -11,7 +11,7 @@ const emit = defineEmits<{ (e: 'import', list: Expense[], receipts: number): voi
 
 interface Job {
   name: string
-  status: 'waiting' | 'reading' | 'done' | 'error'
+  status: 'waiting' | 'reading' | 'done' | 'error' | 'skipped'
   progress: number
   count: number
   /** Selisih total struk vs jumlah item; bukan 0 → patut dicek. */
@@ -26,7 +26,7 @@ const dragging = ref(false)
 const error = ref('')
 const showAll = ref(false)
 
-const needsCheck = (j: Job) => j.status === 'error' || (j.status === 'done' && (!j.count || !!j.gap))
+const needsCheck = (j: Job) => j.status === 'error' || j.status === 'skipped' || (j.status === 'done' && (!j.count || !!j.gap))
 const problems = computed(() => jobs.value.filter(needsCheck).length)
 const totalItems = computed(() => jobs.value.reduce((s, j) => s + j.count, 0))
 // Saat memproses: semua baris. Setelah selesai: hanya yang bermasalah, kecuali detail dibuka.
@@ -105,6 +105,10 @@ async function processFiles(list: FileList | File[] | null | undefined) {
     }
   }
   await worker()
+  // Berhenti karena kesalahan fatal (mis. key salah): tandai sisanya agar tidak terlihat seolah "0 item".
+  jobs.value.forEach((j) => {
+    if (j.status === 'waiting') j.status = 'skipped'
+  })
   results.forEach((r, i) => r && handle(jobs.value[i], r))
   if (errors.size) error.value = [...errors].join(' ')
 
@@ -175,7 +179,7 @@ function onDrop(e: DragEvent) {
       <li v-for="{ j, i } in visible" :key="i" class="list-row text-small" style="flex-wrap: wrap">
         <span class="row" style="flex-wrap: nowrap; min-width: 0; gap: 8px">
           <CircleCheck v-if="j.status === 'done' && j.count" :size="18" class="pos" aria-hidden="true" />
-          <CircleAlert v-else-if="j.status === 'error' || (j.status === 'done' && !j.count)" :size="18" class="neg" aria-hidden="true" />
+          <CircleAlert v-else-if="j.status === 'error' || j.status === 'skipped' || (j.status === 'done' && !j.count)" :size="18" class="neg" aria-hidden="true" />
           <LoaderCircle v-else-if="j.status === 'reading'" :size="18" class="spin" aria-hidden="true" />
           <span v-else style="width: 18px" />
           <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ j.name }}</span>
@@ -183,6 +187,7 @@ function onDrop(e: DragEvent) {
         <span class="muted-text money">
           <template v-if="j.status === 'done'">{{ j.count ? `${j.count} item` : 'Tidak terbaca' }}</template>
           <template v-else-if="j.status === 'error'">Gagal</template>
+          <template v-else-if="j.status === 'skipped'">Dilewati</template>
           <template v-else-if="j.status === 'reading'">{{ j.wait ? `Menunggu kuota ${j.wait}s…` : 'Membaca…' }}</template>
           <template v-else>Menunggu</template>
         </span>

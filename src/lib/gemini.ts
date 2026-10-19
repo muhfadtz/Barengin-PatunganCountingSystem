@@ -21,15 +21,14 @@ export interface ParsedReceipt {
 }
 
 /**
- * Urutan model yang dicoba: yang pertama dipakai, kalau 404 (tidak ada / sudah dipensiunkan) lanjut ke berikutnya.
- * Paksa satu model lewat VITE_GEMINI_MODEL (nama model bukan rahasia).
+ * Model dipilih otomatis: app menanyakan ke Google model apa saja yang tersedia untuk API key ini
+ * (`GET /v1beta/models`), lalu mencoba dari yang paling baru dan stabil. Nama model tidak ditebak.
+ * Paksa satu model lewat VITE_GEMINI_MODEL (nama model bukan rahasia); kosongkan agar otomatis.
  */
-const MODELS = import.meta.env.VITE_GEMINI_MODEL
-  ? [import.meta.env.VITE_GEMINI_MODEL]
-  : ['gemini-3.6-flash', 'gemini-2.5-flash']
+const FORCED = (import.meta.env.VITE_GEMINI_MODEL ?? '').trim()
 const BASE = '/api/gemini/v1beta/models'
-// Ingat model yang berhasil supaya struk berikutnya tidak mengulang model yang 404.
-let firstTry = 0
+/** Dipakai hanya bila daftar model tidak bisa diambil (selain karena key salah). */
+const FALLBACK_MODELS = ['gemini-2.5-flash']
 
 const PROMPT = `Kamu membaca foto struk belanja/restoran Indonesia. Ekstrak datanya dengan teliti.
 
@@ -176,16 +175,84 @@ async function callModel(model: string, data: string, onWait?: (sec: number) => 
   }
 }
 
+interface ModelInfo {
+  name?: string
+  supportedGenerationMethods?: string[]
+}
+
+/**
+ * Pilih model "flash" untuk membaca gambar dari daftar model Google.
+ * Urutan: versi stabil dulu (versi tertinggi lebih dulu), baru versi preview/eksperimental.
+ * Varian lite/gambar/audio/live/embedding dibuang.
+ */
+export function pickModels(models: ModelInfo[]): string[] {
+  const BAD = /lite|image|tts|audio|live|embed|robotics|computer|thinking|learnlm|aqa|imagen|veo|nano|banana/i
+  const ranked = models
+    .filter((m) => m.name && m.supportedGenerationMethods?.includes('generateContent'))
+    .map((m) => m.name!.replace(/^models\//, ''))
+    .filter((id) => /^gemini-\d+(\.\d+)?-flash/.test(id) && !BAD.test(id))
+    .map((id) => ({
+      id,
+      version: parseFloat(id.match(/^gemini-(\d+(?:\.\d+)?)/)![1]),
+      stable: !/preview|exp|beta|-\d{2,}-\d{2,}/i.test(id),
+    }))
+  // Stabil sebelum preview; di dalam tiap kelompok versi tertinggi lebih dulu, id lebih pendek (alias) lebih dulu.
+  ranked.sort((a, b) => Number(b.stable) - Number(a.stable) || b.version - a.version || a.id.length - b.id.length)
+  return [...new Set(ranked.map((r) => r.id))].slice(0, 4)
+}
+
+let candidates: Promise<string[]> | null = null
+
+async function discoverModels(): Promise<string[]> {
+  if (FORCED) return [FORCED]
+  let res: Response
+  try {
+    res = await fetch(`${BASE}?pageSize=200`)
+  } catch {
+    throw new GeminiError('Tidak bisa terhubung ke server. Periksa koneksi internet.')
+  }
+  if (res.status === 400 || res.status === 401 || res.status === 403)
+    throw new GeminiError('API key Gemini ditolak atau belum diisi. Periksa GEMINI_API_KEY (di .env, atau Environment Variables di Vercel).', true)
+  if (!res.ok) return FALLBACK_MODELS
+  try {
+    const picked = pickModels(((await res.json()) as { models?: ModelInfo[] }).models ?? [])
+    if (!picked.length)
+      throw new GeminiError('API key ini tidak punya akses ke model Gemini Flash yang bisa membaca gambar.', true)
+    return picked
+  } catch (e) {
+    if (e instanceof GeminiError) throw e
+    return FALLBACK_MODELS
+  }
+}
+
+// Ingat model yang berhasil supaya struk berikutnya tidak mengulang model yang 404.
+let firstTry = 0
+
 export async function scanReceipt(file: File, onWait?: (sec: number) => void): Promise<ParsedReceipt> {
   const data = await toBase64Jpeg(file).catch(() => {
     throw new GeminiError('Gambar tidak bisa dibuka')
   })
-  for (let i = firstTry; i < MODELS.length; i++) {
-    const out = await callModel(MODELS[i], data, onWait)
+  candidates ??= discoverModels()
+  let models: string[]
+  try {
+    models = await candidates
+  } catch (e) {
+    candidates = null // jangan menyimpan kegagalan: coba lagi pada upload berikutnya
+    throw e
+  }
+  for (let i = firstTry; i < models.length; i++) {
+    const out = await callModel(models[i], data, onWait)
     if (out) {
       firstTry = i
       return out
     }
   }
-  throw new GeminiError(`Model Gemini tidak ditemukan (${MODELS.join(', ')}). Atur VITE_GEMINI_MODEL di .env.`, true)
+  candidates = null
+  firstTry = 0
+  throw new GeminiError(
+    FORCED
+      ? `Model "${FORCED}" tidak ditemukan untuk key ini. Hapus VITE_GEMINI_MODEL dari .env agar dipilih otomatis.`
+      : `Tidak ada model yang bisa dipakai (dicoba: ${models.join(', ')}).`,
+    true,
+  )
 }
