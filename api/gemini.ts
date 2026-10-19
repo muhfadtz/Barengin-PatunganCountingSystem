@@ -2,6 +2,9 @@
  * Proxy Gemini untuk produksi (Vercel). Di dev, peran yang sama dipegang proxy di vite.config.ts.
  * API key hanya ada di Environment Variable server `GEMINI_API_KEY`, tidak pernah dikirim ke browser.
  *
+ * Browser memanggil `/api/gemini/<path>`; `vercel.json` me-rewrite ke fungsi ini dengan `?path=<path>`.
+ * `GET /api/gemini` (tanpa path) = cek kesehatan: memastikan fungsi hidup dan apakah key sudah diatur (key tidak ditampilkan).
+ *
  * Dibatasi seketat mungkin supaya key tidak bisa dipakai untuk hal lain, hanya dari origin yang sama:
  * - POST `v1beta/models/<model>:generateContent` (membaca struk)
  * - GET  `v1beta/models` (daftar model yang tersedia untuk key ini; query dipatok, tidak diteruskan dari klien)
@@ -26,13 +29,23 @@ const LIST_PATH = 'v1beta/models'
 
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)
 
+/** Galat dari proxy ini ditandai `proxy: true` agar klien bisa membedakannya dari galat Google atau 404 hosting. */
 function fail(res: Res, status: number, message: string) {
-  res.status(status).setHeader('content-type', 'application/json').send(JSON.stringify({ error: { message } }))
+  res
+    .status(status)
+    .setHeader('content-type', 'application/json')
+    .send(JSON.stringify({ proxy: true, error: { message, status: 'BARENGIN_PROXY' } }))
 }
 
 export default async function handler(req: Req, res: Res) {
   const segments = req.query.path
-  const path = Array.isArray(segments) ? segments.join('/') : (segments ?? '')
+  const path = (Array.isArray(segments) ? segments.join('/') : (segments ?? '')).replace(/^\/+|\/+$/g, '')
+
+  if (req.method === 'GET' && path === '') {
+    const configured = (process.env.GEMINI_API_KEY ?? '').trim() !== ''
+    return void res.status(200).setHeader('content-type', 'application/json').send(JSON.stringify({ ok: true, proxy: 'barengin', keyConfigured: configured }))
+  }
+
   const isGenerate = req.method === 'POST' && GENERATE_PATH.test(path)
   const isList = req.method === 'GET' && path === LIST_PATH
   if (!isGenerate && !isList) return fail(res, req.method === 'POST' || req.method === 'GET' ? 404 : 405, 'Not found')

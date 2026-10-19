@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import handler from './gemini/[...path]'
+import handler from '../api/gemini'
 
 const fetchMock = vi.fn()
 beforeEach(() => {
@@ -43,6 +43,43 @@ function run(over: { method?: string; path?: string[]; origin?: string; host?: s
 }
 
 describe('api/gemini proxy', () => {
+  it('path sebagai string (hasil rewrite vercel.json) juga dikenali', async () => {
+    const out = { status: 0, body: '' }
+    const res = {
+      status(c: number) {
+        out.status = c
+        return res
+      },
+      setHeader() {
+        return res
+      },
+      send(b: string) {
+        out.body = b
+      },
+    }
+    await handler(
+      { method: 'POST', headers: { host: 'x.vercel.app' }, query: { path: 'v1beta/models/gemini-2.5-flash:generateContent' }, body: {} },
+      res,
+    )
+    expect(out.status).toBe(200)
+    expect(fetchMock.mock.calls[0][0]).toBe('https://upstream.test/v1beta/models/gemini-2.5-flash:generateContent')
+  })
+
+  it('GET /api/gemini (tanpa path) = cek kesehatan tanpa membocorkan key', async () => {
+    const out = await run({ method: 'GET', path: [] })
+    expect(out.status).toBe(200)
+    expect(JSON.parse(out.body)).toEqual({ ok: true, proxy: 'barengin', keyConfigured: true })
+    expect(out.body).not.toContain('AIzaSECRET')
+    vi.stubEnv('GEMINI_API_KEY', '')
+    expect(JSON.parse((await run({ method: 'GET', path: [] })).body).keyConfigured).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('galat dari proxy ditandai proxy:true', async () => {
+    const out = await run({ origin: 'https://evil.example' })
+    expect(JSON.parse(out.body).proxy).toBe(true)
+  })
+
   it('meneruskan ke Google dengan key di header dan mengembalikan status + isi asli', async () => {
     const out = await run({ origin: 'https://barengin.vercel.app' })
     expect(out.status).toBe(200)
@@ -62,7 +99,7 @@ describe('api/gemini proxy', () => {
 
   it('menolak selain POST, path di luar generateContent, dan origin lain', async () => {
     expect((await run({ method: 'PUT' })).status).toBe(405)
-    expect((await run({ method: 'GET' })).status).toBe(404) // GET hanya untuk daftar model
+    expect((await run({ method: 'GET', path: ['v1beta', 'files'] })).status).toBe(404) // GET hanya untuk daftar model
     expect((await run({ method: 'POST', path: ['v1beta', 'models'] })).status).toBe(404)
     expect((await run({ path: ['v1beta', 'models'] })).status).toBe(404)
     expect((await run({ path: ['v1beta', 'files', 'x'] })).status).toBe(404)

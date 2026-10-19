@@ -125,19 +125,22 @@ export function parseRetryDelay(body: unknown): number | null {
 }
 
 /** Baca pesan galat dari Google. `isGoogle` false = isi bukan JSON galat Google (mis. halaman 404 hosting/proxy). */
-async function readGoogleError(res: Response): Promise<{ message: string; isGoogle: boolean }> {
+async function readGoogleError(res: Response): Promise<{ message: string; isGoogle: boolean; fromProxy: boolean }> {
   try {
-    const j = JSON.parse(await res.text()) as { error?: { message?: unknown; status?: unknown } }
+    const j = JSON.parse(await res.text()) as { proxy?: unknown; error?: { message?: unknown; status?: unknown } }
     const message = typeof j.error?.message === 'string' ? j.error.message : ''
-    return { message, isGoogle: !!message || typeof j.error?.status === 'string' }
+    const fromProxy = j.proxy === true
+    return { message, isGoogle: !fromProxy && (!!message || typeof j.error?.status === 'string'), fromProxy }
   } catch {
-    return { message: '', isGoogle: false }
+    return { message: '', isGoogle: false, fromProxy: false }
   }
 }
 
-const proxyMissing = () =>
+const proxyMissing = (proxyMsg = '') =>
   new GeminiError(
-    'Proxy /api/gemini tidak ditemukan (404 bukan dari Google). Di Vercel pastikan fungsi api/gemini ikut ter-deploy dan GEMINI_API_KEY sudah diisi; di lokal restart `npm run dev`.',
+    proxyMsg
+      ? `Proxy /api/gemini menolak permintaan: ${proxyMsg}`
+      : 'Proxy /api/gemini tidak ditemukan (404 bukan dari Google dan bukan dari fungsi proxy). Di Vercel buka /api/gemini di browser: harus tampil {"ok":true,...}; jika 404, fungsi belum ter-deploy. Di lokal restart `npm run dev`.',
     true,
   )
 
@@ -179,8 +182,8 @@ async function callModel(model: string, data: string, onWait?: (sec: number) => 
   }
 
   if (res.status === 404) {
-    const { message, isGoogle } = await readGoogleError(res)
-    if (!isGoogle) throw proxyMissing()
+    const { message, isGoogle, fromProxy } = await readGoogleError(res)
+    if (!isGoogle) throw proxyMissing(fromProxy ? message : '')
     lastNotFound = message
     return null
   }
@@ -240,7 +243,10 @@ async function discoverModels(): Promise<string[]> {
   }
   if (res.status === 400 || res.status === 401 || res.status === 403)
     throw new GeminiError('API key Gemini ditolak atau belum diisi. Periksa GEMINI_API_KEY (di .env, atau Environment Variables di Vercel).', true)
-  if (res.status === 404 && !(await readGoogleError(res.clone())).isGoogle) throw proxyMissing()
+  if (res.status === 404) {
+    const info = await readGoogleError(res.clone())
+    if (!info.isGoogle) throw proxyMissing(info.fromProxy ? info.message : '')
+  }
   if (!res.ok) return FALLBACK_MODELS
   try {
     const picked = pickModels(((await res.json()) as { models?: ModelInfo[] }).models ?? [])

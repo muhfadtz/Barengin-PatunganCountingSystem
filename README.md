@@ -35,7 +35,7 @@ npm run dev              # restart setelah mengubah .env
 
 `GEMINI_API_KEY` **tidak** berawalan `VITE_`, jadi hanya dibaca server Vite dan tidak masuk ke JavaScript browser. Browser memanggil `/api/gemini/...`; proxy Vite menambahkan key.
 
-> Di dev, proxy ini ada di `vite.config.ts` (aktif di `npm run dev` / `npm run preview`). Di produksi (Vercel) perannya dipegang fungsi serverless `api/gemini/[...path].ts`, lihat bagian Deploy.
+> Di dev, proxy ini ada di `vite.config.ts` (aktif di `npm run dev` / `npm run preview`). Di produksi (Vercel) perannya dipegang fungsi serverless `api/gemini.ts`, lihat bagian Deploy.
 
 - **Model:** dipilih otomatis. App menanyakan ke Google model apa saja yang tersedia untuk key-mu (`GET /v1beta/models`), lalu memakai model Flash stabil terbaru yang bisa membaca gambar (fallback ke berikutnya bila 404). Paksa satu model lewat `VITE_GEMINI_MODEL` hanya jika perlu; nama yang salah membuat scan gagal.
 - **Cek total:** kalau total di struk berbeda dari jumlah item + pajak, baris struk diberi peringatan. Selalu periksa hasilnya sebelum membagi.
@@ -46,7 +46,8 @@ npm run dev              # restart setelah mengubah .env
 
 1. Import repo di Vercel (framework Vite terdeteksi otomatis; `vercel.json` hanya mengatur batas waktu fungsi).
 2. Di *Settings → Environment Variables* tambahkan `GEMINI_API_KEY` (Production dan Preview), lalu **redeploy**. Tanpa ini, scan struk menampilkan pesan bahwa key belum diatur.
-3. Fungsi `api/gemini/[...path].ts` menyimpan key di server dan hanya meneruskan `POST v1beta/models/<model>:generateContent` dan `GET v1beta/models` (daftar model) dari origin yang sama. Key tidak pernah masuk ke bundle browser.
+3. Fungsi `api/gemini.ts` (dengan `rewrites` di `vercel.json`: `/api/gemini/*` → fungsi itu) menyimpan key di server dan hanya meneruskan `POST v1beta/models/<model>:generateContent` dan `GET v1beta/models` (daftar model) dari origin yang sama.
+4. **Cek cepat:** buka `https://<domain-kamu>/api/gemini` di browser. Harus tampil `{"ok":true,"proxy":"barengin","keyConfigured":true}`. `keyConfigured:false` berarti `GEMINI_API_KEY` belum terbaca (isi lalu redeploy); 404 berarti fungsi belum ter-deploy. Key tidak pernah masuk ke bundle browser.
 
 > **Perhatian:** siapa pun yang membuka situs bisa memakai kuota Gemini milikmu lewat proxy ini. Untuk membatasinya aktifkan *Deployment Protection* (Vercel Authentication / password) di pengaturan proyek, atau tambahkan autentikasi sendiri sebelum dibagikan.
 
