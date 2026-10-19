@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { CircleAlert, CircleCheck, ImagePlus, LoaderCircle, ScanLine } from 'lucide-vue-next'
+import { ChevronDown, CircleAlert, CircleCheck, ImagePlus, LoaderCircle, ScanLine } from 'lucide-vue-next'
 import { GeminiError, scanReceipt, totalGap } from '../lib/gemini'
 import type { ParsedReceipt } from '../lib/gemini'
 import { rupiah, uid } from '../lib/format'
@@ -24,6 +24,17 @@ const jobs = ref<Job[]>([])
 const busy = ref(false)
 const dragging = ref(false)
 const error = ref('')
+const showAll = ref(false)
+
+const needsCheck = (j: Job) => j.status === 'error' || (j.status === 'done' && (!j.count || !!j.gap))
+const problems = computed(() => jobs.value.filter(needsCheck).length)
+const totalItems = computed(() => jobs.value.reduce((s, j) => s + j.count, 0))
+// Saat memproses: semua baris. Setelah selesai: hanya yang bermasalah, kecuali detail dibuka.
+const visible = computed(() =>
+  jobs.value
+    .map((j, i) => ({ j, i }))
+    .filter(({ j }) => busy.value || showAll.value || needsCheck(j)),
+)
 
 const finished = computed(() => jobs.value.filter((j) => j.status === 'done' || j.status === 'error').length)
 const overall = computed(() => {
@@ -40,6 +51,7 @@ async function processFiles(list: FileList | File[] | null | undefined) {
     return
   }
   error.value = ''
+  showAll.value = false
   busy.value = true
   jobs.value = files.map((f) => ({ name: f.name, status: 'waiting', progress: 0, count: 0 }))
   const imported: Expense[] = []
@@ -143,8 +155,24 @@ function onDrop(e: DragEvent) {
       <span :style="{ width: `${Math.max(4, Math.round(overall * 100))}%` }" />
     </div>
 
-    <ul v-if="jobs.length" class="stack" style="gap: 6px; list-style: none; padding: 0; margin: 0">
-      <li v-for="(j, i) in jobs" :key="i" class="list-row text-small">
+    <!-- Ringkasan ringkas setelah selesai; detail per file bisa dibuka -->
+    <button
+      v-if="jobs.length && !busy"
+      type="button"
+      class="member-toggle"
+      style="align-self: flex-start; min-height: 36px; padding: 4px 12px"
+      :aria-expanded="showAll"
+      @click="showAll = !showAll"
+    >
+      <component :is="problems ? CircleAlert : CircleCheck" :size="18" :class="problems ? 'neg' : 'pos'" aria-hidden="true" />
+      <span class="text-small" style="font-weight: 600">
+        {{ jobs.length }} struk · {{ totalItems }} item<template v-if="problems"> · {{ problems }} perlu dicek</template>
+      </span>
+      <ChevronDown :size="16" class="select-chev" :class="{ 'select-chev-open': showAll }" aria-hidden="true" />
+    </button>
+
+    <ul v-if="visible.length" class="stack" style="gap: 6px; list-style: none; padding: 0; margin: 0">
+      <li v-for="{ j, i } in visible" :key="i" class="list-row text-small" style="flex-wrap: wrap">
         <span class="row" style="flex-wrap: nowrap; min-width: 0; gap: 8px">
           <CircleCheck v-if="j.status === 'done' && j.count" :size="18" class="pos" aria-hidden="true" />
           <CircleAlert v-else-if="j.status === 'error' || (j.status === 'done' && !j.count)" :size="18" class="neg" aria-hidden="true" />
