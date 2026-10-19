@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { allocate, balances, computeShares, settle } from './split'
 import type { Expense, Member } from './split'
-import { parseSse } from './unlimitedocr'
 import { extractJson, groundInText, normalizeReceipt } from './llmParser'
 import { mergeReceipts } from './merge'
 import { cleanOcrText, parseReceipt, receiptTotal } from './receiptParser'
@@ -118,21 +117,6 @@ describe('cleanOcrText (keluaran PaddleOCR-VL)', () => {
   it('membuang penanda markdown', () => {
     expect(cleanOcrText('## **Total** 66.600')).toContain('Total')
     expect(parseReceipt('## **Total** 66.600').total).toBe(66600)
-  })
-})
-
-describe('parseSse (API Gradio)', () => {
-  it('mengambil teks dari event complete (dict dengan text)', () => {
-    const raw = 'event: generating\ndata: [{"text":"Nasi","done":false}]\n\nevent: complete\ndata: [{"text":"Nasi Goreng 50.000","done":true}]\n\n'
-    expect(parseSse(raw)).toBe('Nasi Goreng 50.000')
-  })
-  it('menerima keluaran string biasa', () => {
-    expect(parseSse('event: complete\ndata: ["halo"]\n')).toBe('halo')
-  })
-  it('melempar error saat event error / tanpa hasil', () => {
-    expect(() => parseSse('event: error\ndata: null\n')).toThrow()
-    expect(() => parseSse('event: error\ndata: "boom"\n')).toThrow()
-    expect(() => parseSse('')).toThrow()
   })
 })
 

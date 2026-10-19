@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { CircleAlert, CircleCheck, ImagePlus, LoaderCircle, ScanLine } from 'lucide-vue-next'
-import { OcrError, recognizeReceipt } from '../lib/unlimitedocr'
+import { createLocalOcr, OcrError } from '../lib/localocr'
 import { groundInText, LlmError, parseWithLlm } from '../lib/llmParser'
 import { mergeReceipts } from '../lib/merge'
 import { parseReceipt } from '../lib/receiptParser'
@@ -68,12 +68,13 @@ async function processFiles(list: FileList | File[] | null | undefined) {
     })
   }
 
-  // Satu per satu (kuota/antrian ZeroGPU); tiap struk: Unlimited-OCR → teks → LLM kecil + parser aturan → gabung.
+  // Satu per satu (satu worker Tesseract); tiap struk: Tesseract.js → teks → LLM kecil + parser aturan → gabung.
   const results: (ParsedReceipt | null)[] = files.map(() => null)
   let next = 0
   let stop = false
   let llmDown = false
   const errors = new Set<string>()
+  const ocr = createLocalOcr()
   async function worker() {
     while (!stop && next < files.length) {
       const i = next++
@@ -81,7 +82,7 @@ async function processFiles(list: FileList | File[] | null | undefined) {
       job.status = 'reading'
       job.progress = 0.3
       try {
-        const text = await recognizeReceipt(files[i])
+        const text = await ocr.recognize(files[i], (p) => (job.progress = 0.05 + p * 0.65))
         job.text = text
         job.progress = 0.7
         const rules = parseReceipt(text)
@@ -102,13 +103,17 @@ async function processFiles(list: FileList | File[] | null | undefined) {
       } catch (e) {
         job.status = 'error'
         errors.add(e instanceof OcrError ? e.message : 'Gagal memproses struk')
-        // Salah konfigurasi / token: tidak ada gunanya melanjutkan file lain.
+        // OCR gagal dimuat (mis. offline): tidak ada gunanya melanjutkan file lain.
         if (e instanceof OcrError && e.fatal) stop = true
       }
       job.progress = 1
     }
   }
-  await worker()
+  try {
+    await worker()
+  } finally {
+    await ocr.close()
+  }
   results.forEach((r, i) => r && handle(jobs.value[i], r))
   if (errors.size) error.value = [...errors].join(' ')
 
@@ -149,7 +154,7 @@ function onDrop(e: DragEvent) {
         <ScanLine :size="36" stroke-width="1.8" aria-hidden="true" />
         <span class="text-body-md">Upload atau scan struk — bisa banyak sekaligus</span>
         <span class="text-small muted-text">
-          Pilih beberapa foto, atau tarik &amp; lepas. Dibaca Unlimited-OCR lalu langsung jadi daftar item.
+          Pilih beberapa foto, atau tarik &amp; lepas. Dibaca OCR di browser, lalu dirapikan AI jadi daftar item.
         </span>
       </template>
       <input type="file" accept="image/*" multiple :disabled="busy" class="sr-only" @change="onPick" />
